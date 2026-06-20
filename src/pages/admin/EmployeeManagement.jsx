@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { UserPlus, Mail, Search, Shield, ChevronUp } from 'lucide-react';
+import { UserPlus, Mail, Search, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ export default function EmployeeManagement() {
   const [inviteName, setInviteName] = useState('');
   const inviteRole = 'employee';
   const [inviteSent, setInviteSent] = useState(false);
-  const [changingRoleFor, setChangingRoleFor] = useState(null);
   const queryClient = useQueryClient();
 
   const { data: users = [], isLoading } = useQuery({
@@ -98,31 +97,6 @@ export default function EmployeeManagement() {
     toast.error(error.message || 'Failed to invite employee');
   },
 });
-
-  const changeRoleMutation = useMutation({
-  mutationFn: async ({ user_id, new_role }) => {
-    const { error } = await supabase
-      .from('employees')
-      .update({
-        role: new_role,
-      })
-      .eq('id', user_id);
-
-    if (error) {
-      throw error;
-    }
-
-    return { new_role };
-  },
-    onSuccess: (data) => {
-      toast.success(`Role updated to ${data.new_role}`);
-      setChangingRoleFor(null);
-      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
-    },
-    onError: (error) => {
-      toast.error(error.message || 'Failed to update role');
-    },
-  });
 
   const handleInvite = async (e) => {
   e.preventDefault();
@@ -262,37 +236,13 @@ export default function EmployeeManagement() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 min-w-0">
-                  {changingRoleFor === emp.id ? (
-                    <div className="flex flex-col gap-1 items-end">
-                      <div className="flex gap-1">
-                        {['employee', 'owner_admin'].map(r => (
-                          <button
-                            key={r}
-                            onClick={() => changeRoleMutation.mutate({ user_id: emp.id, new_role: r })}
-                            disabled={changeRoleMutation.isPending}
-                            className={`px-2 py-1 rounded text-xs border transition-all ${emp.role === r ? 'bg-primary/20 border-primary text-primary font-semibold' : 'bg-card border-border text-muted-foreground hover:border-primary hover:text-primary'}`}
-                          >
-                            {r === 'owner_admin' ? 'Admin' : 'Staff'}
-                          </button>
-                        ))}
-                        <button onClick={() => setChangingRoleFor(null)} className="px-2 py-1 rounded text-xs border border-border text-muted-foreground hover:text-foreground">✕</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <Badge variant={emp.role === 'owner_admin' || emp.role === 'admin' ? 'default' : 'outline'} className="whitespace-nowrap">
-                        {emp.role === 'owner_admin' || emp.role === 'admin' ? 'Owner' : 'Employee'}
-                      </Badge>
-                      <button
-                        onClick={() => setChangingRoleFor(emp.id)}
-                        className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                        title="Change role"
-                      >
-                        <ChevronUp className="w-3 h-3" />
-                      </button>
-                    </>
-                  )}
-                </div>
+  <Badge
+    variant={emp.role === 'owner_admin' || emp.role === 'admin' ? 'default' : 'outline'}
+    className="whitespace-nowrap"
+  >
+    {emp.role === 'owner_admin' || emp.role === 'admin' ? 'Owner' : 'Employee'}
+  </Badge>
+</div>
               </CardContent>
             </Card>
           ))

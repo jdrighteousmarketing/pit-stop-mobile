@@ -1,4 +1,4 @@
-import { Users, ScanLine, ArrowRight } from 'lucide-react';
+import { Users, ScanLine, ArrowRight, User } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -24,6 +24,14 @@ const employeeTools = [
     desc: 'View customer profiles',
     color: 'from-blue-500/20 to-sky-500/10 border-blue-500/30',
     iconColor: 'text-blue-400',
+  },
+  {
+    path: '/admin/employee-account',
+    icon: User,
+    label: 'Account',
+    desc: 'View and update your employee info',
+    color: 'from-emerald-500/20 to-green-500/10 border-emerald-500/30',
+    iconColor: 'text-emerald-400',
   },
 ];
 
@@ -101,8 +109,8 @@ export default function EmployeeDashboard() {
   const recentCustomers = [...customers]
     .filter((c) => c.created_at || c.created_date)
     .sort((a, b) => {
-      const dateA = new Date(a.created_at || a.created_date).getTime();
-      const dateB = new Date(b.created_at || b.created_date).getTime();
+      const dateA = new Date(castDate(a.created_at || a.created_date)).getTime();
+      const dateB = new Date(castDate(b.created_at || b.created_date)).getTime();
 
       return dateB - dateA;
     })
@@ -272,4 +280,8 @@ export default function EmployeeDashboard() {
       </div>
     </div>
   );
+}
+
+function castDate(value) {
+  return value || null;
 }

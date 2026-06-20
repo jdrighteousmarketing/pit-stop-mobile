@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   ScanLine,
+  User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -37,6 +38,7 @@ const employeeNavItems = [
   },
   { path: '/admin/scanner', icon: ScanLine, label: 'Scanner' },
   { path: '/admin/customer-directory', icon: Users, label: 'Customers' },
+  { path: '/admin/employee-account', icon: User, label: 'Account' },
 ];
 
 export default function AdminLayout() {
@@ -117,6 +119,7 @@ export default function AdminLayout() {
     '/admin/scanner',
     '/admin/customer-directory',
     '/admin/employee-dashboard',
+    '/admin/employee-account',
     '/admin/checkout-review',
   ];
 

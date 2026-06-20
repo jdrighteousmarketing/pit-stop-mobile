@@ -36,6 +36,7 @@ import Contact from './pages/Contact';
 import AdminLayout from './components/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import EmployeeDashboard from './pages/admin/EmployeeDashboard';
+import EmployeeAccount from './pages/admin/EmployeeAccount';
 import MenuManagement from './pages/admin/MenuManagement';
 import RewardsManagement from './pages/admin/RewardsManagement';
 import PromotionsManagement from './pages/admin/PromotionsManagement';
@@ -83,7 +84,11 @@ const AuthenticatedApp = () => {
   if (authError?.type === 'auth_required') {
     const isEmployeeSignupPath = currentPath === '/employee-signup';
 
-    if (!authPaths.includes(currentPath) && !isAdminPath && !isEmployeeSignupPath) {
+    if (
+      !authPaths.includes(currentPath) &&
+      !isAdminPath &&
+      !isEmployeeSignupPath
+    ) {
       navigateToLogin();
       return null;
     }
@@ -120,12 +125,22 @@ const AuthenticatedApp = () => {
 
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<Dashboard />} />
-          <Route path="/admin/employee-dashboard" element={<EmployeeDashboard />} />
+          <Route
+            path="/admin/employee-dashboard"
+            element={<EmployeeDashboard />}
+          />
+          <Route
+            path="/admin/employee-account"
+            element={<EmployeeAccount />}
+          />
           <Route path="/admin/menu" element={<MenuManagement />} />
           <Route path="/admin/rewards" element={<RewardsManagement />} />
           <Route path="/admin/promotions" element={<PromotionsManagement />} />
           <Route path="/admin/customers" element={<CustomerManagement />} />
-          <Route path="/admin/customer-directory" element={<EmployeeCustomerDirectory />} />
+          <Route
+            path="/admin/customer-directory"
+            element={<EmployeeCustomerDirectory />}
+          />
           <Route path="/admin/employees" element={<EmployeeManagement />} />
           <Route path="/admin/settings" element={<BusinessSettingsPage />} />
           <Route path="/admin/scanner" element={<ScannerPage />} />

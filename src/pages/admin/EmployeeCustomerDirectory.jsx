@@ -20,10 +20,24 @@ function safeDate(value) {
   return date.toLocaleDateString();
 }
 
+function safeBirthday(value) {
+  if (!value) return '—';
+
+  const parts = String(value).split('-').map(Number);
+
+  if (parts.length < 3) return '—';
+
+  const [year, month, day] = parts;
+
+  if (!year || !month || !day) return '—';
+
+  return `${month}/${day}/${year}`;
+}
+
 function getBirthdayInfo(customer) {
   if (!customer?.birthday) return null;
 
-  const parts = customer.birthday.split('-').map(Number);
+  const parts = String(customer.birthday).split('-').map(Number);
 
   if (parts.length < 3) return null;
 
@@ -32,19 +46,29 @@ function getBirthdayInfo(customer) {
   if (!month || !day) return null;
 
   const now = new Date();
-  const birthdayThisYear = new Date(now.getFullYear(), month - 1, day);
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
+
+  const birthdayThisYear = new Date(
+    today.getFullYear(),
+    month - 1,
+    day
+  );
 
   if (Number.isNaN(birthdayThisYear.getTime())) return null;
 
-  if (birthdayThisYear < now) {
-    birthdayThisYear.setFullYear(now.getFullYear() + 1);
+  if (birthdayThisYear < today) {
+    birthdayThisYear.setFullYear(today.getFullYear() + 1);
   }
 
   return {
     ...customer,
     nextBirthday: birthdayThisYear,
     daysUntil: Math.ceil(
-      (birthdayThisYear - now) / (1000 * 60 * 60 * 24)
+      (birthdayThisYear - today) / (1000 * 60 * 60 * 24)
     ),
   };
 }
@@ -132,7 +156,7 @@ export default function EmployeeCustomerDirectory() {
                   </p>
 
                   <p className="text-xs text-gray-600 dark:text-pink-200 mt-1">
-                    {safeDate(c.birthday)}
+                    {safeBirthday(c.birthday)}
                   </p>
 
                   <Badge className="mt-2 text-[10px] bg-pink-500/10 text-pink-600 w-fit">
@@ -188,7 +212,9 @@ export default function EmployeeCustomerDirectory() {
                       {c.email || 'No email'}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      {c.customer_code || c.customer_id_code || 'No customer code'}
+                      {c.customer_code ||
+                        c.customer_id_code ||
+                        'No customer code'}
                     </p>
                   </div>
                 </div>

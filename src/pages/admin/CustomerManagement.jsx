@@ -16,7 +16,19 @@ function safeDate(value) {
   if (Number.isNaN(date.getTime())) return 'Unknown';
   return date.toLocaleDateString();
 }
+function safeBirthday(value) {
+  if (!value) return 'Unknown';
 
+  const parts = String(value).split('-').map(Number);
+
+  if (parts.length < 3) return 'Unknown';
+
+  const [year, month, day] = parts;
+
+  if (!year || !month || !day) return 'Unknown';
+
+  return `${month}/${day}/${year}`;
+}
 function birthdayInfo(customer) {
   if (!customer?.birthday) return null;
 
@@ -174,7 +186,7 @@ export default function CustomerManagement() {
                   </p>
 
                   <p className="text-xs text-gray-600 dark:text-pink-200 mt-1">
-                    {safeDate(c.birthday)}
+                    {safeBirthday(c.birthday)}
                   </p>
 
                   <Badge className="mt-2 text-[10px] bg-pink-500/10 text-pink-600 w-fit">
@@ -287,7 +299,7 @@ export default function CustomerManagement() {
 
                 <div className="flex items-center gap-2">
                   <Cake className="w-4 h-4 text-muted-foreground" />
-                  <span>{safeDate(selectedCustomer.birthday)}</span>
+                  {safeBirthday(selectedCustomer.birthday)}
                 </div>
 
                 <div className="flex items-center gap-2">
