@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+// @ts-nocheck
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Gift, Cake, Search, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,24 +18,37 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
 
-const REWARD_KEY = 'pitstop_rewards';
-const CUSTOMER_KEY = 'pitstop_customers';
-const TRANSACTION_KEY = 'pitstop_point_transactions';
+const RESTAURANT_ID = 'pit_stop_mobile';
 
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const emptyRewardForm = {
+  name: '',
+  description: '',
+  points_required: '',
+  image_url: '',
+  is_birthday_reward: false,
+  is_active: true,
+  sort_order: 0,
+};
+
+const emptyCustomerForm = {
+  name: '',
+  email: '',
+  phone: '',
+  birthday: '',
+  points_balance: 0,
+};
 
 export default function RewardsManagement() {
-  const [rewards, setRewards] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const queryClient = useQueryClient();
 
   const [dialog, setDialog] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({});
+  const [form, setForm] = useState(emptyRewardForm);
 
   const [customerDialog, setCustomerDialog] = useState(false);
-  const [customerForm, setCustomerForm] = useState({});
+  const [customerForm, setCustomerForm] = useState(emptyCustomerForm);
 
   const [adjustDialog, setAdjustDialog] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -41,135 +56,283 @@ export default function RewardsManagement() {
   const [adjustDesc, setAdjustDesc] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
 
-  useEffect(() => {
-    setRewards(JSON.parse(localStorage.getItem(REWARD_KEY) || '[]'));
-    setCustomers(JSON.parse(localStorage.getItem(CUSTOMER_KEY) || '[]'));
-    setTransactions(JSON.parse(localStorage.getItem(TRANSACTION_KEY) || '[]'));
-  }, []);
+  const { data: rewards = [], isLoading: rewardsLoading } = useQuery({
+    queryKey: ['adminRewards', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('rewards')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .order('sort_order', { ascending: true });
 
-  const saveRewards = (nextRewards) => {
-    setRewards(nextRewards);
-    localStorage.setItem(REWARD_KEY, JSON.stringify(nextRewards));
+      if (error) {
+        console.error('Could not load rewards:', error);
+        throw error;
+      }
+
+      return Array.isArray(data) ? data : [];
+    },
+  });
+
+  const { data: customers = [], isLoading: customersLoading } = useQuery({
+    queryKey: ['adminCustomers', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('customer_profiles')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Could not load customers:', error);
+        throw error;
+      }
+
+      return Array.isArray(data) ? data : [];
+    },
+  });
+
+  const { data: transactions = [], isLoading: transactionsLoading } = useQuery({
+    queryKey: ['adminPointTransactions', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('point_transactions')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Could not load point transactions:', error);
+        throw error;
+      }
+
+      return Array.isArray(data) ? data : [];
+    },
+  });
+
+  const refreshRewards = () => {
+    queryClient.invalidateQueries({ queryKey: ['adminRewards', RESTAURANT_ID] });
+    queryClient.invalidateQueries({ queryKey: ['rewards', RESTAURANT_ID] });
   };
 
-  const saveCustomers = (nextCustomers) => {
-    setCustomers(nextCustomers);
-    localStorage.setItem(CUSTOMER_KEY, JSON.stringify(nextCustomers));
+  const refreshCustomers = () => {
+    queryClient.invalidateQueries({ queryKey: ['adminCustomers', RESTAURANT_ID] });
+    queryClient.invalidateQueries({ queryKey: ['customerProfile'] });
   };
 
-  const saveTransactions = (nextTransactions) => {
-    setTransactions(nextTransactions);
-    localStorage.setItem(TRANSACTION_KEY, JSON.stringify(nextTransactions));
+  const refreshTransactions = () => {
+    queryClient.invalidateQueries({
+      queryKey: ['adminPointTransactions', RESTAURANT_ID],
+    });
   };
+
+  const createReward = useMutation({
+    mutationFn: async (data) => {
+      const { error } = await supabase.from('rewards').insert([data]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refreshRewards();
+      setDialog(false);
+      toast.success('Reward created!');
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error('Could not create reward.');
+    },
+  });
+
+  const updateReward = useMutation({
+    mutationFn: async ({ id, data }) => {
+      const { error } = await supabase
+        .from('rewards')
+        .update(data)
+        .eq('id', id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refreshRewards();
+      setDialog(false);
+      toast.success('Reward updated!');
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error('Could not update reward.');
+    },
+  });
+
+  const deactivateReward = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase
+        .from('rewards')
+        .update({ is_active: false })
+        .eq('id', id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refreshRewards();
+      toast.success('Reward deactivated.');
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error('Could not deactivate reward.');
+    },
+  });
+
+  const createCustomer = useMutation({
+    mutationFn: async (data) => {
+      const { error } = await supabase.from('customer_profiles').insert([data]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refreshCustomers();
+      setCustomerDialog(false);
+      toast.success('Customer added!');
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error('Could not add customer.');
+    },
+  });
+
+  const adjustPoints = useMutation({
+    mutationFn: async ({ customer, points, description }) => {
+      const newBalance = Math.max(0, (customer.points_balance || 0) + points);
+      const newTotalEarned =
+        points > 0
+          ? (customer.total_points_earned || 0) + points
+          : customer.total_points_earned || 0;
+
+      const { error: customerError } = await supabase
+        .from('customer_profiles')
+        .update({
+          points_balance: newBalance,
+          total_points_earned: newTotalEarned,
+        })
+        .eq('id', customer.id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (customerError) throw customerError;
+
+      const { error: transactionError } = await supabase
+        .from('point_transactions')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_profile_id: customer.id,
+            customer_name: customer.name || 'Customer',
+            points,
+            type: 'adjustment',
+            description: description || 'Manual adjustment',
+          },
+        ]);
+
+      if (transactionError) throw transactionError;
+    },
+    onSuccess: () => {
+      refreshCustomers();
+      refreshTransactions();
+
+      setAdjustDialog(false);
+      setAdjustAmount('');
+      setAdjustDesc('');
+      setSelectedCustomer(null);
+
+      toast.success('Points adjusted!');
+    },
+    onError: (error) => {
+      console.error(error);
+      toast.error('Could not adjust points.');
+    },
+  });
 
   const openDialog = (reward = null) => {
     setEditing(reward);
+
     setForm(
       reward
-        ? { ...reward }
-        : {
-            name: '',
-            description: '',
-            points_required: '',
-            image_url: '',
-            is_birthday_reward: false,
-            is_active: true,
-            sort_order: 0,
+        ? {
+            name: reward.name || '',
+            description: reward.description || '',
+            points_required: reward.points_required || '',
+            image_url: reward.image_url || '',
+            is_birthday_reward: reward.is_birthday_reward ?? false,
+            is_active: reward.is_active ?? true,
+            sort_order: reward.sort_order || 0,
           }
+        : emptyRewardForm
     );
+
     setDialog(true);
   };
 
   const handleSave = () => {
     const data = {
-      ...form,
+      restaurant_id: RESTAURANT_ID,
+      name: form.name?.trim(),
+      description: form.description?.trim() || null,
       points_required: parseInt(form.points_required) || 0,
+      image_url: form.image_url?.trim() || null,
+      is_birthday_reward: form.is_birthday_reward ?? false,
+      is_active: form.is_active ?? true,
       sort_order: parseInt(form.sort_order) || 0,
     };
 
-    if (editing) {
-      saveRewards(
-        rewards.map((reward) =>
-          reward.id === editing.id ? { ...reward, ...data } : reward
-        )
-      );
-      toast.success('Reward updated!');
-    } else {
-      saveRewards([...rewards, { ...data, id: makeId() }]);
-      toast.success('Reward created!');
+    if (!data.name) {
+      toast.error('Reward name is required.');
+      return;
     }
 
-    setDialog(false);
-  };
-
-  const deleteReward = (id) => {
-    saveRewards(rewards.filter((reward) => reward.id !== id));
-    toast.success('Reward deleted');
+    if (editing) {
+      updateReward.mutate({ id: editing.id, data });
+    } else {
+      createReward.mutate(data);
+    }
   };
 
   const openCustomerDialog = () => {
-    setCustomerForm({
-      name: '',
-      email: '',
-      phone: '',
-      birthday: '',
-      points_balance: 0,
-      total_points_earned: 0,
-    });
+    setCustomerForm(emptyCustomerForm);
     setCustomerDialog(true);
   };
 
   const handleSaveCustomer = () => {
-    const newCustomer = {
-      ...customerForm,
-      id: makeId(),
-      points_balance: parseInt(customerForm.points_balance) || 0,
-      total_points_earned: parseInt(customerForm.points_balance) || 0,
-      created_at: new Date().toISOString(),
+    const startingPoints = parseInt(customerForm.points_balance) || 0;
+
+    const data = {
+      restaurant_id: RESTAURANT_ID,
+      name: customerForm.name?.trim(),
+      email: customerForm.email?.trim() || null,
+      phone: customerForm.phone?.trim() || null,
+      birthday: customerForm.birthday || null,
+      points_balance: startingPoints,
+      total_points_earned: startingPoints,
     };
 
-    saveCustomers([...customers, newCustomer]);
-    setCustomerDialog(false);
-    toast.success('Customer added!');
+    if (!data.name) {
+      toast.error('Customer name is required.');
+      return;
+    }
+
+    createCustomer.mutate(data);
   };
 
   const applyPointAdjustment = () => {
-    const pts = parseInt(adjustAmount);
+    const points = parseInt(adjustAmount);
 
-    if (!selectedCustomer || Number.isNaN(pts)) return;
+    if (!selectedCustomer || Number.isNaN(points)) {
+      toast.error('Enter a valid point amount.');
+      return;
+    }
 
-    const updatedCustomers = customers.map((customer) => {
-      if (customer.id !== selectedCustomer.id) return customer;
-
-      return {
-        ...customer,
-        points_balance: Math.max(0, (customer.points_balance || 0) + pts),
-        total_points_earned:
-          pts > 0
-            ? (customer.total_points_earned || 0) + pts
-            : customer.total_points_earned || 0,
-      };
+    adjustPoints.mutate({
+      customer: selectedCustomer,
+      points,
+      description: adjustDesc,
     });
-
-    const newTransaction = {
-      id: makeId(),
-      customer_profile_id: selectedCustomer.id,
-      customer_name: selectedCustomer.name,
-      points: pts,
-      type: 'adjustment',
-      description: adjustDesc || 'Manual adjustment',
-      created_at: new Date().toISOString(),
-    };
-
-    saveCustomers(updatedCustomers);
-    saveTransactions([newTransaction, ...transactions]);
-
-    setAdjustDialog(false);
-    setAdjustAmount('');
-    setAdjustDesc('');
-    setSelectedCustomer(null);
-
-    toast.success('Points adjusted!');
   };
 
   const sortedRewards = [...rewards].sort(
@@ -187,18 +350,34 @@ export default function RewardsManagement() {
     );
   });
 
+  const isBusy =
+    rewardsLoading ||
+    customersLoading ||
+    transactionsLoading ||
+    createReward.isPending ||
+    updateReward.isPending ||
+    deactivateReward.isPending ||
+    createCustomer.isPending ||
+    adjustPoints.isPending;
+
   return (
     <div>
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold">Rewards Management</h1>
+          <h1 className="text-2xl font-display font-bold">
+            Rewards Management
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Create rewards, manage customers, and adjust loyalty points.
           </p>
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={openCustomerDialog} variant="outline" className="gap-2">
+          <Button
+            onClick={openCustomerDialog}
+            variant="outline"
+            className="gap-2"
+          >
             <UserPlus className="w-4 h-4" />
             Add Customer
           </Button>
@@ -214,18 +393,27 @@ export default function RewardsManagement() {
         <TabsList>
           <TabsTrigger value="rewards">Rewards ({rewards.length})</TabsTrigger>
           <TabsTrigger value="points">Customers ({customers.length})</TabsTrigger>
-          <TabsTrigger value="history">History ({transactions.length})</TabsTrigger>
+          <TabsTrigger value="history">
+            History ({transactions.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="rewards">
           <div className="space-y-2">
-            {rewards.length === 0 ? (
+            {rewardsLoading ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  Loading rewards...
+                </CardContent>
+              </Card>
+            ) : rewards.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center text-muted-foreground">
                   <p className="text-4xl mb-3">🎁</p>
                   <p className="font-medium">No rewards yet</p>
                   <p className="text-sm mt-1">
-                    Add rewards like free drinks, free fries, or birthday specials.
+                    Add rewards like free drinks, free fries, or birthday
+                    specials.
                   </p>
                 </CardContent>
               </Card>
@@ -243,7 +431,9 @@ export default function RewardsManagement() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-sm">{reward.name}</h3>
+                        <h3 className="font-semibold text-sm">
+                          {reward.name}
+                        </h3>
 
                         {reward.is_birthday_reward && (
                           <Badge className="text-[10px] bg-pink-500/10 text-pink-600">
@@ -281,7 +471,7 @@ export default function RewardsManagement() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive"
-                        onClick={() => deleteReward(reward.id)}
+                        onClick={() => deactivateReward.mutate(reward.id)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -311,9 +501,13 @@ export default function RewardsManagement() {
               </div>
 
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {filteredCustomers.length === 0 ? (
+                {customersLoading ? (
                   <div className="py-10 text-center text-muted-foreground">
-                    No customers yet. Add one to test point adjustments.
+                    Loading customers...
+                  </div>
+                ) : filteredCustomers.length === 0 ? (
+                  <div className="py-10 text-center text-muted-foreground">
+                    No customers yet.
                   </div>
                 ) : (
                   filteredCustomers.map((customer) => (
@@ -362,7 +556,11 @@ export default function RewardsManagement() {
 
             <CardContent>
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {transactions.length === 0 ? (
+                {transactionsLoading ? (
+                  <div className="py-10 text-center text-muted-foreground">
+                    Loading history...
+                  </div>
+                ) : transactions.length === 0 ? (
                   <div className="py-10 text-center text-muted-foreground">
                     No point history yet.
                   </div>
@@ -382,7 +580,9 @@ export default function RewardsManagement() {
                       </div>
 
                       <Badge
-                        variant={transaction.points >= 0 ? 'outline' : 'secondary'}
+                        variant={
+                          transaction.points >= 0 ? 'outline' : 'secondary'
+                        }
                       >
                         {transaction.points >= 0 ? '+' : ''}
                         {transaction.points} pts
@@ -399,7 +599,9 @@ export default function RewardsManagement() {
       <Dialog open={dialog} onOpenChange={setDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Reward' : 'Add Reward'}</DialogTitle>
+            <DialogTitle>
+              {editing ? 'Edit Reward' : 'Add Reward'}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -442,7 +644,9 @@ export default function RewardsManagement() {
               <Label>Image URL</Label>
               <Input
                 value={form.image_url || ''}
-                onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, image_url: e.target.value })
+                }
                 className="mt-1"
               />
             </div>
@@ -452,7 +656,9 @@ export default function RewardsManagement() {
               <Input
                 type="number"
                 value={form.sort_order || 0}
-                onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, sort_order: e.target.value })
+                }
                 className="mt-1"
               />
             </div>
@@ -481,7 +687,10 @@ export default function RewardsManagement() {
               Cancel
             </Button>
 
-            <Button onClick={handleSave} disabled={!form.name}>
+            <Button
+              onClick={handleSave}
+              disabled={!form.name || createReward.isPending || updateReward.isPending}
+            >
               {editing ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
@@ -534,7 +743,10 @@ export default function RewardsManagement() {
                 type="date"
                 value={customerForm.birthday || ''}
                 onChange={(e) =>
-                  setCustomerForm({ ...customerForm, birthday: e.target.value })
+                  setCustomerForm({
+                    ...customerForm,
+                    birthday: e.target.value,
+                  })
                 }
                 className="mt-1"
               />
@@ -562,7 +774,10 @@ export default function RewardsManagement() {
               Cancel
             </Button>
 
-            <Button onClick={handleSaveCustomer} disabled={!customerForm.name}>
+            <Button
+              onClick={handleSaveCustomer}
+              disabled={!customerForm.name || createCustomer.isPending}
+            >
               Create Customer
             </Button>
           </DialogFooter>
@@ -609,7 +824,10 @@ export default function RewardsManagement() {
               Cancel
             </Button>
 
-            <Button onClick={applyPointAdjustment} disabled={!adjustAmount}>
+            <Button
+              onClick={applyPointAdjustment}
+              disabled={!adjustAmount || adjustPoints.isPending}
+            >
               Apply
             </Button>
           </DialogFooter>

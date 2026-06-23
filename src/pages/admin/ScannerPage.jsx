@@ -4,27 +4,65 @@ import QRScanner from '@/components/admin/QRScanner';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
+function decodePart(value, fallback = '') {
+  try {
+    return decodeURIComponent(value || fallback);
+  } catch {
+    return value || fallback;
+  }
+}
+
 function parseCouponText(couponText) {
   if (!couponText) return null;
 
+  const firstCoupon = couponText.split(',').filter(Boolean)[0];
+  if (!firstCoupon) return null;
+
   const [
-    redemptionId,
+    checkoutDealId,
     promotionId,
     title,
     promoCode,
     discountType,
     discountValue,
-  ] = couponText.split('~');
+  ] = firstCoupon.split('~');
 
-  if (!redemptionId || !promotionId) return null;
+  if (!checkoutDealId || !promotionId) return null;
 
   return {
-    redemptionId: Number(redemptionId),
-    promotionId: Number(promotionId),
-    title: decodeURIComponent(title || 'Claimed Coupon'),
-    promoCode: decodeURIComponent(promoCode || ''),
-    discountType: decodeURIComponent(discountType || ''),
+    checkoutDealId: String(checkoutDealId),
+    promotionId: String(promotionId),
+    title: decodePart(title, 'Coupon Added'),
+    promoCode: decodePart(promoCode, ''),
+    discountType: decodePart(discountType, ''),
     discountValue: discountValue ? Number(discountValue) : null,
+    status: 'pending',
+  };
+}
+
+function parseRewardText(rewardText) {
+  if (!rewardText) return null;
+
+  const firstReward = rewardText.split(',').filter(Boolean)[0];
+  if (!firstReward) return null;
+
+  const [
+    checkoutRewardId,
+    rewardId,
+    rewardName,
+    rewardDescription,
+    pointsRequired,
+  ] = firstReward.split('~');
+
+  if (!checkoutRewardId || !rewardId) return null;
+
+  return {
+    checkoutRewardId: String(checkoutRewardId),
+    rewardId: String(rewardId),
+    rewardName: decodePart(rewardName, 'Reward Added'),
+    rewardDescription: decodePart(rewardDescription, ''),
+    pointsRequired: pointsRequired ? Number(pointsRequired) : 0,
+    status: 'pending',
   };
 }
 
@@ -52,6 +90,7 @@ function parseShortPitStopQR(code) {
       pointsToEarn,
       itemText,
       couponText,
+      rewardText,
     ] = parts;
 
     const items = itemText
@@ -63,7 +102,7 @@ function parseShortPitStopQR(code) {
 
             return {
               id: `qr_item_${index}`,
-              name: decodeURIComponent(name || 'Item'),
+              name: decodePart(name, 'Item'),
               quantity: Number(quantity || 1),
               price: Number(price || 0),
             };
@@ -71,14 +110,15 @@ function parseShortPitStopQR(code) {
       : [];
 
     return {
-      customerCode: decodeURIComponent(customerCode || 'PIT-CUSTOMER'),
-      customerName: decodeURIComponent(customerName || 'Customer'),
+      customerCode: decodePart(customerCode, 'PIT-CUSTOMER'),
+      customerName: decodePart(customerName, 'Customer'),
       subtotal: Number(subtotal || 0),
       taxAmount: Number(taxAmount || 0),
       total: Number(total || 0),
       pointsToEarn: Number(pointsToEarn || 0),
       items,
       claimedCoupon: parseCouponText(couponText),
+      claimedReward: parseRewardText(rewardText),
     };
   }
 
@@ -96,6 +136,7 @@ function parseShortPitStopQR(code) {
       pointsToEarn: Number(parsed.pointsToEarn || 0),
       items: parsed.items || [],
       claimedCoupon: parsed.claimedCoupon || null,
+      claimedReward: parsed.claimedReward || null,
     };
   }
 
@@ -114,6 +155,7 @@ function parseShortPitStopQR(code) {
         price: Number(item.p || 0),
       })),
       claimedCoupon: parsed.coupon || null,
+      claimedReward: parsed.reward || null,
     };
   }
 
@@ -166,7 +208,7 @@ export default function ScannerPage() {
           Rewards Checkout Scanner
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Scan a customer checkout QR code to award points.
+          Scan a customer checkout QR code to award points, confirm coupons, and confirm rewards.
         </p>
       </div>
 

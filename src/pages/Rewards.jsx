@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
 import { Gift, Star, Cake, QrCode, Trophy } from 'lucide-react';
@@ -8,10 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import PullToRefresh from '@/components/customer/PullToRefresh';
 
-const REWARD_KEY = 'pitstop_rewards';
-const TRANSACTION_KEY = 'pitStopPointTransactions';
-
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 function readJSON(key, fallback) {
   try {
@@ -25,79 +23,125 @@ function getDemoUser() {
   return readJSON('pitstop_demo_user', {});
 }
 
-function saveDemoUser(user) {
-  localStorage.setItem('pitstop_demo_user', JSON.stringify(user));
+function getPointsBalance(customer, savedUser) {
+  return Number(
+    customer?.points_balance ??
+      savedUser?.points_balance ??
+      savedUser?.points ??
+      0
+  );
+}
+
+function getLifetimePoints(customer, savedUser) {
+  return Number(
+    customer?.lifetime_points ??
+      customer?.total_points_earned ??
+      savedUser?.lifetime_points ??
+      savedUser?.total_points_earned ??
+      0
+  );
 }
 
 export default function Rewards() {
   const [rewards, setRewards] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [redeemingId, setRedeemingId] = useState(null);
+
   const [profile, setProfile] = useState({
     id: 'demo-profile-1',
     name: 'Customer',
     email: 'customer@pitstop.com',
     points_balance: 0,
-    total_points_earned: 0,
+    lifetime_points: 0,
     customer_id_code: 'PIT-12345',
   });
 
   const loadRewardsData = async () => {
-  const savedUser = getDemoUser();
-  const savedRewards = readJSON(REWARD_KEY, []);
-  const savedTransactions = readJSON(TRANSACTION_KEY, []);
+    setLoading(true);
 
-  setRewards(savedRewards);
-  setTransactions(savedTransactions);
+    const savedUser = getDemoUser();
 
-  const customerCode =
-    savedUser.customer_code ||
-    savedUser.customer_id_code ||
-    'PIT-12345';
-
-  let supabaseCustomer = null;
-
-  try {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .eq('restaurant_id', 'pit_stop_mobile')
-      .eq('customer_code', customerCode)
-      .single();
-
-    if (!error && data) {
-      supabaseCustomer = data;
-    }
-  } catch (error) {
-    console.error('Could not load rewards from Supabase:', error);
-  }
-
-  setProfile({
-    id: savedUser.id || supabaseCustomer?.id || 'demo-profile-1',
-    name:
-      supabaseCustomer?.name ||
-      savedUser.name ||
-      savedUser.email?.split('@')[0] ||
-      'Customer',
-    email:
-      supabaseCustomer?.email ||
-      savedUser.email ||
-      'customer@pitstop.com',
-    points_balance: Number(
-      supabaseCustomer?.points_balance ??
-      savedUser.points_balance ??
-      0
-    ),
-    total_points_earned: Number(
-      supabaseCustomer?.lifetime_points ??
-      savedUser.total_points_earned ??
-      0
-    ),
-    customer_id_code:
-      supabaseCustomer?.customer_code ||
+    const customerCode =
+      savedUser.customer_code ||
       savedUser.customer_id_code ||
-      'PIT-12345',
-  });
-};
+      'PIT-12345';
+
+    let customerProfile = null;
+
+    try {
+      const { data: customerData, error: customerError } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerCode)
+        .maybeSingle();
+
+      if (customerError) throw customerError;
+
+      customerProfile = customerData || null;
+    } catch (error) {
+      console.error('Could not load customer:', error);
+    }
+
+    const activeProfile = {
+      id: customerProfile?.id || savedUser.id || 'demo-profile-1',
+      name:
+        customerProfile?.name ||
+        customerProfile?.full_name ||
+        savedUser.name ||
+        savedUser.email?.split('@')[0] ||
+        'Customer',
+      email:
+        customerProfile?.email ||
+        savedUser.email ||
+        'customer@pitstop.com',
+      points_balance: getPointsBalance(customerProfile, savedUser),
+      lifetime_points: getLifetimePoints(customerProfile, savedUser),
+      customer_id_code:
+        customerProfile?.customer_code ||
+        savedUser.customer_code ||
+        savedUser.customer_id_code ||
+        'PIT-12345',
+    };
+
+    setProfile(activeProfile);
+
+    try {
+      const { data: rewardsData, error: rewardsError } = await supabase
+        .from('rewards')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (rewardsError) throw rewardsError;
+
+      setRewards(Array.isArray(rewardsData) ? rewardsData : []);
+    } catch (error) {
+      console.error('Could not load rewards:', error);
+      setRewards([]);
+    }
+
+    try {
+      const { data: txData, error: txError } = await supabase
+        .from('points_transactions')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', activeProfile.customer_id_code)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (txError) throw txError;
+
+      setTransactions(Array.isArray(txData) ? txData : []);
+    } catch (error) {
+      console.error('Could not load point transactions:', error);
+      setTransactions([]);
+    }
+
+    setLoading(false);
+  };
 
   useEffect(() => {
     loadRewardsData();
@@ -106,80 +150,120 @@ export default function Rewards() {
       loadRewardsData();
     };
 
-    window.addEventListener('storage', handleUpdate);
     window.addEventListener('focus', handleUpdate);
 
     return () => {
-      window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('focus', handleUpdate);
     };
   }, []);
 
   const handleRefresh = async () => {
-    loadRewardsData();
+    await loadRewardsData();
     return true;
   };
 
-  const saveTransactions = (nextTransactions) => {
-    setTransactions(nextTransactions);
-    localStorage.setItem(TRANSACTION_KEY, JSON.stringify(nextTransactions));
-  };
-
-  const handleRedeemReward = (reward) => {
+  const handleRedeemReward = async (reward) => {
     if ((profile.points_balance || 0) < reward.points_required) {
       toast.error('Not enough points yet');
       return;
     }
 
+    setRedeemingId(reward.id);
+
     const newBalance = Math.max(
       0,
-      (profile.points_balance || 0) - reward.points_required
+      Number(profile.points_balance || 0) - Number(reward.points_required || 0)
     );
 
-    const savedUser = getDemoUser();
+    try {
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({
+          points_balance: newBalance,
+        })
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', profile.customer_id_code);
 
-    const updatedUser = {
-      ...savedUser,
-      points_balance: newBalance,
-    };
+      if (updateError) throw updateError;
 
-    saveDemoUser(updatedUser);
+      const { error: checkoutRewardError } = await supabase
+        .from('customer_checkout_rewards')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
 
-    const newTransaction = {
-      id: makeId(),
-      customer_profile_id: profile.id,
-      customer_name: profile.name,
-      description: `Redeemed: ${reward.name}`,
-      points: -reward.points_required,
-      type: 'redeemed',
-      created_at: new Date().toISOString(),
-    };
+            customer_id: profile.id,
+            customer_name: profile.name,
+            customer_code: profile.customer_id_code,
 
-    saveTransactions([newTransaction, ...transactions]);
+            reward_id: String(reward.id),
+            reward_name: reward.name,
+            reward_description: reward.description,
+            points_required: Number(reward.points_required || 0),
 
-    setProfile((prev) => ({
-      ...prev,
-      points_balance: newBalance,
-    }));
+            status: 'pending',
+          },
+        ]);
 
-    toast.success(`${reward.name} redeemed!`);
+      if (checkoutRewardError) throw checkoutRewardError;
+
+      const { error: txError } = await supabase
+        .from('points_transactions')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_code: profile.customer_id_code,
+            transaction_type: 'redeemed',
+            points_amount: -Math.abs(Number(reward.points_required || 0)),
+            note: `Redeemed: ${reward.name}`,
+            employee_name: null,
+          },
+        ]);
+
+      if (txError) throw txError;
+
+      setProfile((prev) => ({
+        ...prev,
+        points_balance: newBalance,
+      }));
+
+      const savedUser = getDemoUser();
+
+      const savedCode = savedUser.customer_code || savedUser.customer_id_code;
+
+      if (savedCode === profile.customer_id_code) {
+        localStorage.setItem(
+          'pitstop_demo_user',
+          JSON.stringify({
+            ...savedUser,
+            points_balance: newBalance,
+          })
+        );
+      }
+
+      window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
+
+      toast.success(`${reward.name} added to checkout!`);
+      await loadRewardsData();
+    } catch (error) {
+      console.error('Could not redeem reward:', error);
+      toast.error(error.message || 'Could not redeem reward.');
+    } finally {
+      setRedeemingId(null);
+    }
   };
 
-  const sortedRewards = [...rewards]
-    .filter((reward) => reward.is_active !== false)
-    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const sortedRewards = [...rewards].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+  );
 
-  const regularRewards = sortedRewards.filter((reward) => !reward.is_birthday_reward);
-  const birthdayRewards = sortedRewards.filter((reward) => reward.is_birthday_reward);
+  const regularRewards = sortedRewards.filter(
+    (reward) => !reward.is_birthday_reward
+  );
 
-  const recentTransactions = [...transactions]
-    .filter((tx) => tx.customer_profile_id === profile.id)
-    .sort(
-      (a, b) =>
-        new Date(b.created_at || b.created_date) -
-        new Date(a.created_at || a.created_date)
-    )
-    .slice(0, 10);
+  const birthdayRewards = sortedRewards.filter(
+    (reward) => reward.is_birthday_reward
+  );
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -239,7 +323,11 @@ export default function Rewards() {
           </div>
 
           <div className="space-y-3">
-            {regularRewards.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-8 text-muted-foreground bg-card rounded-2xl border border-border">
+                Loading rewards...
+              </div>
+            ) : regularRewards.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground bg-card rounded-2xl border border-border">
                 <p className="text-3xl mb-2">🎁</p>
                 <p className="font-medium">No rewards available yet</p>
@@ -250,7 +338,8 @@ export default function Rewards() {
                 const progress =
                   reward.points_required > 0
                     ? Math.min(
-                        ((profile.points_balance || 0) / reward.points_required) *
+                        ((profile.points_balance || 0) /
+                          reward.points_required) *
                           100,
                         100
                       )
@@ -309,9 +398,12 @@ export default function Rewards() {
                           <Button
                             size="sm"
                             className="mt-3 w-full h-8"
+                            disabled={redeemingId === reward.id}
                             onClick={() => handleRedeemReward(reward)}
                           >
-                            Redeem Reward
+                            {redeemingId === reward.id
+                              ? 'Adding to Checkout...'
+                              : 'Redeem Reward'}
                           </Button>
                         )}
                       </div>
@@ -355,42 +447,42 @@ export default function Rewards() {
           </div>
         )}
 
-        {recentTransactions.length > 0 && (
+        {transactions.length > 0 && (
           <div className="px-5 mt-8">
             <h2 className="text-lg font-display font-bold mb-4">
               Recent Activity
             </h2>
 
             <div className="space-y-2">
-              {recentTransactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="flex items-center justify-between bg-card rounded-xl border border-border p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium">
-                      {tx.description || tx.type}
-                    </p>
+              {transactions.map((tx) => {
+                const amount = Number(tx.points_amount ?? tx.points ?? 0);
 
-                    <p className="text-[10px] text-muted-foreground">
-                      {new Date(
-                        tx.created_at || tx.created_date
-                      ).toLocaleDateString()}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`font-bold text-sm ${
-                      tx.points > 0
-                        ? 'text-emerald-600'
-                        : 'text-destructive'
-                    }`}
+                return (
+                  <div
+                    key={tx.id}
+                    className="flex items-center justify-between bg-card rounded-xl border border-border p-3"
                   >
-                    {tx.points > 0 ? '+' : ''}
-                    {tx.points}
-                  </span>
-                </div>
-              ))}
+                    <div>
+                      <p className="text-sm font-medium">
+                        {tx.note || tx.description || tx.transaction_type}
+                      </p>
+
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(tx.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`font-bold text-sm ${
+                        amount > 0 ? 'text-emerald-600' : 'text-destructive'
+                      }`}
+                    >
+                      {amount > 0 ? '+' : ''}
+                      {amount}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

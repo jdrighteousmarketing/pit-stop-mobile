@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShoppingCart, CheckCircle, Ticket } from 'lucide-react';
+import { ShoppingCart, CheckCircle, Ticket, Gift } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -19,6 +19,32 @@ function safeJsonParse(value, fallback) {
   }
 }
 
+function getDiscountLabel(coupon) {
+  if (!coupon) return 'Special Offer';
+
+  if (coupon.discountType === 'percentage') {
+    return `${coupon.discountValue || 0}% Off`;
+  }
+
+  if (coupon.discountType === 'fixed') {
+    return `$${coupon.discountValue || 0} Off`;
+  }
+
+  if (coupon.discountType === 'bogo') {
+    return 'BOGO';
+  }
+
+  if (coupon.discountType === 'points') {
+    return `${coupon.discountValue || 2}X Points`;
+  }
+
+  if (coupon.discountType === 'free_item') {
+    return 'Free Item';
+  }
+
+  return 'Special Offer';
+}
+
 export default function CheckoutReview() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -36,6 +62,7 @@ export default function CheckoutReview() {
 
   const items = checkoutData.items || [];
   const claimedCoupon = checkoutData.claimedCoupon || null;
+  const claimedReward = checkoutData.claimedReward || null;
 
   const handleCompleteAward = async () => {
     setAwarding(true);
@@ -131,51 +158,68 @@ export default function CheckoutReview() {
       }
 
       const employeeUser = JSON.parse(
-  localStorage.getItem('pitstop_employee_user') || '{}'
-);
+        localStorage.getItem('pitstop_employee_user') || '{}'
+      );
 
-const adminUser = JSON.parse(
-  localStorage.getItem('pitstop_demo_user') || '{}'
-);
+      const adminUser = JSON.parse(
+        localStorage.getItem('pitstop_demo_user') || '{}'
+      );
 
-const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
+      const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
 
-const { error: pointsError } = await supabase
-  .from('points_transactions')
-  .insert([
-    {
-      restaurant_id: RESTAURANT_ID,
-      customer_code: customerCode,
-      order_number: orderNumber,
-      transaction_type: 'earned',
-      points_amount: pointsToAdd,
-      note: `Earned from order total $${money(checkoutData.total)}`,
-      employee_name: staffUser?.name || staffUser?.email || 'Employee',
-      awarded_by_employee_id: staffUser?.id || null,
-      awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
-      awarded_by_employee_name: staffUser?.name || 'Employee',
-      awarded_by_employee_email: staffUser?.email || null,
-    },
-  ]);
+      const { error: pointsError } = await supabase
+        .from('points_transactions')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_code: customerCode,
+            order_number: orderNumber,
+            transaction_type: 'earned',
+            points_amount: pointsToAdd,
+            note: `Earned from order total $${money(checkoutData.total)}`,
+            employee_name: staffUser?.name || staffUser?.email || 'Employee',
+            awarded_by_employee_id: staffUser?.id || null,
+            awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
+            awarded_by_employee_name: staffUser?.name || 'Employee',
+            awarded_by_employee_email: staffUser?.email || null,
+          },
+        ]);
 
       if (pointsError) {
         throw pointsError;
       }
 
-      if (claimedCoupon?.redemptionId) {
+      if (claimedCoupon?.checkoutDealId) {
         const { error: couponError } = await supabase
-          .from('promotion_redemptions')
+          .from('customer_checkout_deals')
           .update({
-            status: 'used',
-            used_at: new Date().toISOString(),
+            status: 'redeemed',
+            redeemed_at: new Date().toISOString(),
+            notes: `Redeemed during order ${orderNumber}`,
           })
-          .eq('id', claimedCoupon.redemptionId)
+          .eq('id', claimedCoupon.checkoutDealId)
           .eq('restaurant_id', RESTAURANT_ID)
-          .eq('customer_id', customer.id)
-          .eq('status', 'claimed');
+          .eq('status', 'pending');
 
         if (couponError) {
           throw couponError;
+        }
+      }
+
+      if (claimedReward?.checkoutRewardId) {
+        const { error: rewardError } = await supabase
+          .from('customer_checkout_rewards')
+          .update({
+            status: 'redeemed',
+            redeemed_at: new Date().toISOString(),
+            notes: `Redeemed during order ${orderNumber}`,
+          })
+          .eq('id', claimedReward.checkoutRewardId)
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('status', 'pending');
+
+        if (rewardError) {
+          throw rewardError;
         }
       }
 
@@ -240,33 +284,95 @@ const { error: pointsError } = await supabase
             Items Purchased
           </div>
 
-          {items.map((item, index) => (
-            <div key={index} className="flex justify-between text-sm">
-              <span>
-                {item.quantity}× {item.name}
-              </span>
-              <span>${money(Number(item.price || 0) * Number(item.quantity || 1))}</span>
-            </div>
-          ))}
+          {items.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No menu items included. Coupon/reward-only checkout.
+            </p>
+          ) : (
+            items.map((item, index) => (
+              <div key={index} className="flex justify-between text-sm">
+                <span>
+                  {item.quantity}× {item.name}
+                </span>
+                <span>
+                  ${money(Number(item.price || 0) * Number(item.quantity || 1))}
+                </span>
+              </div>
+            ))
+          )}
         </div>
 
         {claimedCoupon && (
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-1">
-            <div className="flex items-center gap-2 font-semibold text-sm">
-              <Ticket className="w-4 h-4 text-primary" />
-              Claimed Coupon
+          <div className="rounded-xl border-2 border-primary/50 bg-primary/10 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-primary" />
+              <p className="text-lg font-display font-bold text-primary">
+                COUPON ADDED
+              </p>
             </div>
 
-            <p className="font-medium text-sm">{claimedCoupon.title}</p>
+            <p className="font-bold text-base">
+              {claimedCoupon.title || 'Promotion'}
+            </p>
 
-            {claimedCoupon.promoCode && (
-              <p className="text-xs text-muted-foreground">
-                Code: {claimedCoupon.promoCode}
+            <div className="space-y-1 text-sm">
+              {claimedCoupon.promoCode && (
+                <p>
+                  <span className="font-semibold">Code:</span>{' '}
+                  {claimedCoupon.promoCode}
+                </p>
+              )}
+
+              <p>
+                <span className="font-semibold">Discount:</span>{' '}
+                {getDiscountLabel(claimedCoupon)}
+              </p>
+
+              <p>
+                <span className="font-semibold">Status:</span>{' '}
+                Pending Redemption
+              </p>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              This coupon will be marked redeemed when checkout is completed.
+            </p>
+          </div>
+        )}
+
+        {claimedReward && (
+          <div className="rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Gift className="w-5 h-5 text-emerald-500" />
+              <p className="text-lg font-display font-bold text-emerald-500">
+                REWARD ADDED
+              </p>
+            </div>
+
+            <p className="font-bold text-base">
+              {claimedReward.rewardName || 'Reward'}
+            </p>
+
+            {claimedReward.rewardDescription && (
+              <p className="text-sm text-muted-foreground">
+                {claimedReward.rewardDescription}
               </p>
             )}
 
+            <div className="space-y-1 text-sm">
+              <p>
+                <span className="font-semibold">Points Cost:</span>{' '}
+                {claimedReward.pointsRequired || 0}
+              </p>
+
+              <p>
+                <span className="font-semibold">Status:</span>{' '}
+                Pending Redemption
+              </p>
+            </div>
+
             <p className="text-xs text-muted-foreground">
-              This coupon will be marked used when checkout is completed.
+              This reward will be marked redeemed when checkout is completed.
             </p>
           </div>
         )}

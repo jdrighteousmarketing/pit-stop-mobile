@@ -1,36 +1,93 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Tag, Clock, Ticket, Percent } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
+import { toast } from 'sonner';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
 const typeConfig = {
-  promotion: { icon: Tag, label: 'Promotion', color: 'bg-primary/10 text-primary' },
-  coupon: { icon: Ticket, label: 'Coupon', color: 'bg-violet-500/10 text-violet-600' },
-  limited_time: { icon: Clock, label: 'Limited Time', color: 'bg-amber-500/10 text-amber-600' },
+  promotion: {
+    icon: Tag,
+    label: 'Promotion',
+    color: 'bg-primary/10 text-primary',
+  },
+  coupon: {
+    icon: Ticket,
+    label: 'Coupon',
+    color: 'bg-violet-500/10 text-violet-600',
+  },
+  limited_time: {
+    icon: Clock,
+    label: 'Limited Time',
+    color: 'bg-amber-500/10 text-amber-600',
+  },
 };
 
 function getDiscountLabel(promo) {
-  if (promo.discount_type === 'percentage') return `${promo.discount_value}% Off`;
-  if (promo.discount_type === 'fixed') return `$${promo.discount_value} Off`;
-  if (promo.discount_type === 'bogo') return 'BOGO';
-  if (promo.discount_type === 'points') return '2X Points';
-  return 'Free Item';
+  if (promo.discount_type === 'percentage') {
+    return `${promo.discount_value || 0}% Off`;
+  }
+
+  if (promo.discount_type === 'fixed') {
+    return `$${promo.discount_value || 0} Off`;
+  }
+
+  if (promo.discount_type === 'bogo') {
+    return 'BOGO';
+  }
+
+  if (promo.discount_type === 'points') {
+    return `${promo.discount_value || 2}X Points`;
+  }
+
+  if (promo.discount_type === 'free_item') {
+    return 'Free Item';
+  }
+
+  return 'Special Offer';
+}
+
+function isPromoInDateRange(promo) {
+  const now = new Date();
+
+  if (promo.end_date) {
+    const endDate = new Date(promo.end_date);
+    endDate.setHours(23, 59, 59, 999);
+
+    if (endDate < now) return false;
+  }
+
+  if (promo.start_date) {
+    const startDate = new Date(promo.start_date);
+    startDate.setHours(0, 0, 0, 0);
+
+    if (startDate > now) return false;
+  }
+
+  return true;
 }
 
 export default function Promotions() {
   const queryClient = useQueryClient();
   const [redeemingId, setRedeemingId] = useState(null);
+  const [justAddedId, setJustAddedId] = useState(null);
 
   const { data: customerProfile } = useCustomerProfile();
 
-  const customerId = customerProfile?.id;
+  const customerId = customerProfile?.id || null;
+  const customerName = customerProfile?.name || 'Customer';
+  const customerCode =
+    customerProfile?.customer_id_code ||
+    customerProfile?.customer_code ||
+    null;
+
+  const checkoutCustomerId = customerId || customerCode || 'guest-customer';
 
   const { data: promotions = [], isLoading: promotionsLoading } = useQuery({
     queryKey: ['promotions', RESTAURANT_ID],
@@ -47,85 +104,113 @@ export default function Promotions() {
         throw error;
       }
 
-      return data || [];
+      return Array.isArray(data) ? data : [];
     },
   });
 
-  const { data: redemptions = [], isLoading: redemptionsLoading } = useQuery({
-    queryKey: ['promotionRedemptions', RESTAURANT_ID, customerId],
-    enabled: !!customerId,
+  const { data: checkoutDeals = [], isLoading: checkoutDealsLoading } = useQuery({
+    queryKey: ['customerCheckoutDeals', RESTAURANT_ID, checkoutCustomerId],
+    enabled: !!checkoutCustomerId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('promotion_redemptions')
-        .select('promotion_id')
+        .from('customer_checkout_deals')
+        .select('promotion_id, status')
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_id', customerId);
+        .eq('customer_id', checkoutCustomerId)
+        .in('status', ['pending', 'redeemed']);
 
       if (error) {
-        console.error('Could not load promotion redemptions:', error);
+        console.error('Could not load checkout deals:', error);
         throw error;
       }
 
-      return data || [];
+      return Array.isArray(data) ? data : [];
     },
   });
+useEffect(() => {
+  const handleDealUpdate = () => {
+    queryClient.invalidateQueries({
+      queryKey: ['customerCheckoutDeals', RESTAURANT_ID, checkoutCustomerId],
+    });
 
-  const redeemedPromotionIds = useMemo(() => {
-    return new Set(redemptions.map((r) => r.promotion_id));
-  }, [redemptions]);
+    setJustAddedId(null);
+  };
+
+  window.addEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
+  window.addEventListener('focus', handleDealUpdate);
+
+  return () => {
+    window.removeEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
+    window.removeEventListener('focus', handleDealUpdate);
+  };
+}, [queryClient, checkoutCustomerId]);
+  const hiddenPromotionIds = useMemo(() => {
+    return new Set([
+      ...checkoutDeals.map((deal) => String(deal.promotion_id)),
+      ...(justAddedId ? [String(justAddedId)] : []),
+    ]);
+  }, [checkoutDeals, justAddedId]);
 
   const activePromos = useMemo(() => {
-    const now = new Date();
-
     return promotions.filter((promo) => {
-      if (redeemedPromotionIds.has(promo.id)) return false;
-      if (promo.end_date && new Date(promo.end_date) < now) return false;
-      if (promo.start_date && new Date(promo.start_date) > now) return false;
+      if (hiddenPromotionIds.has(String(promo.id))) return false;
+      if (!isPromoInDateRange(promo)) return false;
       return true;
     });
-  }, [promotions, redeemedPromotionIds]);
+  }, [promotions, hiddenPromotionIds]);
 
-  const redeemMutation = useMutation({
-    mutationFn: async (promo) => {
-      if (!customerId) {
-        throw new Error('Customer profile not loaded.');
-      }
+  const handleRedeemDeal = async (promo) => {
+    setRedeemingId(promo.id);
 
-      const { error } = await supabase.from('promotion_redemptions').insert({
-        promotion_id: promo.id,
-        customer_id: customerId,
+    try {
+      const payload = {
         restaurant_id: RESTAURANT_ID,
-      });
+
+        customer_id: checkoutCustomerId,
+        customer_name: customerName || 'Customer',
+        customer_code: customerCode || checkoutCustomerId,
+
+        promotion_id: String(promo.id),
+        promotion_title: promo.title,
+        promotion_type: promo.promotion_type,
+        promo_code: promo.promo_code,
+        discount_type: promo.discount_type,
+        discount_value: promo.discount_value,
+
+        status: 'pending',
+      };
+
+      const { error } = await supabase
+        .from('customer_checkout_deals')
+        .insert([payload]);
 
       if (error) throw error;
 
-      return promo.id;
-    },
-    onMutate: (promo) => {
-      setRedeemingId(promo.id);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['promotionRedemptions', RESTAURANT_ID, customerId],
-      });
-    },
-    onError: (error) => {
-      console.error('Could not redeem promotion:', error);
-      alert('This coupon could not be redeemed. Please try again.');
-    },
-    onSettled: () => {
-      setRedeemingId(null);
-    },
-  });
+      setJustAddedId(String(promo.id));
 
-  const isLoading = promotionsLoading || redemptionsLoading;
+      window.dispatchEvent(new Event('pitstop_checkout_deals_updated'));
+
+      await queryClient.invalidateQueries({
+        queryKey: ['customerCheckoutDeals', RESTAURANT_ID, checkoutCustomerId],
+      });
+
+      toast.success('Deal added to checkout.');
+    } catch (error) {
+      console.error('Could not add deal to checkout:', error);
+      toast.error(error.message || 'Could not add deal to checkout.');
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
+  const isLoading = promotionsLoading || checkoutDealsLoading;
 
   return (
     <div className="pb-4">
       <div className="px-5 pt-12 pb-2">
         <h1 className="text-2xl font-display font-bold">Deals & Promotions</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Don't miss out on these offers
+          Don&apos;t miss out on these offers
         </p>
       </div>
 
@@ -146,7 +231,9 @@ export default function Promotions() {
           </motion.div>
         ) : (
           activePromos.map((promo, i) => {
-            const config = typeConfig[promo.promotion_type] || typeConfig.promotion;
+            const config =
+              typeConfig[promo.promotion_type] || typeConfig.promotion;
+
             const Icon = config.icon;
 
             return (
@@ -188,14 +275,15 @@ export default function Promotions() {
                     </p>
                   )}
 
-            
-
                   <Button
+                    type="button"
                     className="w-full mt-4"
-                    disabled={!customerId || redeemingId === promo.id}
-                    onClick={() => redeemMutation.mutate(promo)}
+                    disabled={redeemingId === promo.id}
+                    onClick={() => handleRedeemDeal(promo)}
                   >
-                    {redeemingId === promo.id ? 'Redeeming...' : 'Redeem Coupon'}
+                    {redeemingId === promo.id
+                      ? 'Added to Checkout'
+                      : 'Add Deal to Checkout'}
                   </Button>
 
                   {promo.end_date && (

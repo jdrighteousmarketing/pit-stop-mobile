@@ -55,22 +55,14 @@ export default function PromotionsManagement() {
     queryKey: ['adminPromosList', RESTAURANT_ID],
     queryFn: async () => {
       const { data, error } = await supabase
-  .from('promotions')
-  .select('*')
-  .eq('restaurant_id', RESTAURANT_ID)
-  .order('created_at', { ascending: false });
+        .from('promotions')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
 
-console.log('PROMOTIONS QUERY');
-console.log('RESTAURANT:', RESTAURANT_ID);
-console.log('DATA:', data);
-console.log('ERROR:', error);
-
-if (error) {
-  console.error('Could not load promotions:', error);
-  throw error;
-}
-
-return Array.isArray(data) ? data : [];
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
     },
     initialData: [],
   });
@@ -118,7 +110,7 @@ return Array.isArray(data) ? data : [];
     mutationFn: async (id) => {
       const { error } = await supabase
         .from('promotions')
-        .delete()
+        .update({ is_active: false })
         .eq('id', id)
         .eq('restaurant_id', RESTAURANT_ID);
 
@@ -138,24 +130,24 @@ return Array.isArray(data) ? data : [];
   const openDialog = (promo = null) => {
     setEditing(promo);
 
-    if (promo) {
-      setForm({
-        title: promo.title || '',
-        description: promo.description || '',
-        promo_code: promo.promo_code || '',
-        discount_type: promo.discount_type || 'percentage',
-        discount_value:
-          promo.discount_value === null || promo.discount_value === undefined
-            ? ''
-            : String(promo.discount_value),
-        start_date: toDateInput(promo.start_date),
-        end_date: toDateInput(promo.end_date),
-        is_active: promo.is_active ?? true,
-        promotion_type: promo.promotion_type || 'promotion',
-      });
-    } else {
-      setForm(emptyForm);
-    }
+    setForm(
+      promo
+        ? {
+            title: promo.title || '',
+            description: promo.description || '',
+            promo_code: promo.promo_code || '',
+            discount_type: promo.discount_type || 'percentage',
+            discount_value:
+              promo.discount_value === null || promo.discount_value === undefined
+                ? ''
+                : String(promo.discount_value),
+            start_date: toDateInput(promo.start_date),
+            end_date: toDateInput(promo.end_date),
+            is_active: promo.is_active ?? true,
+            promotion_type: promo.promotion_type || 'promotion',
+          }
+        : emptyForm
+    );
 
     setDialog(true);
   };
@@ -198,8 +190,6 @@ return Array.isArray(data) ? data : [];
     limited_time: 'Limited Time',
   };
 
-  const sortedPromotions = Array.isArray(promotions) ? promotions : [];
-
   return (
     <div>
       <div className="mb-6">
@@ -224,14 +214,14 @@ return Array.isArray(data) ? data : [];
               Loading promotions...
             </CardContent>
           </Card>
-        ) : sortedPromotions.length === 0 ? (
+        ) : promotions.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               No promotions yet
             </CardContent>
           </Card>
         ) : (
-          sortedPromotions.map((promo) => (
+          promotions.map((promo) => (
             <Card key={promo.id}>
               <CardContent className="p-3 flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -241,26 +231,15 @@ return Array.isArray(data) ? data : [];
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-sm">{promo.title}</h3>
-
                     <Badge variant="outline" className="text-[10px]">
                       {typeLabels[promo.promotion_type] || 'Promotion'}
                     </Badge>
-
-                    {!promo.is_active && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Inactive
-                      </Badge>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
                     {promo.promo_code && <span>Code: {promo.promo_code}</span>}
-                    {promo.start_date && (
-                      <span>From: {toDateInput(promo.start_date)}</span>
-                    )}
-                    {promo.end_date && (
-                      <span>Until: {toDateInput(promo.end_date)}</span>
-                    )}
+                    {promo.start_date && <span>From: {toDateInput(promo.start_date)}</span>}
+                    {promo.end_date && <span>Until: {toDateInput(promo.end_date)}</span>}
                   </div>
                 </div>
 
@@ -278,6 +257,7 @@ return Array.isArray(data) ? data : [];
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-destructive"
+                    disabled={deletePromo.isPending}
                     onClick={() => deletePromo.mutate(promo.id)}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -292,9 +272,7 @@ return Array.isArray(data) ? data : [];
       <Dialog open={dialog} onOpenChange={setDialog}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editing ? 'Edit Promotion' : 'Add Promotion'}
-            </DialogTitle>
+            <DialogTitle>{editing ? 'Edit Promotion' : 'Add Promotion'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -311,9 +289,7 @@ return Array.isArray(data) ? data : [];
               <Label>Description</Label>
               <Textarea
                 value={form.description || ''}
-                onChange={(e) =>
-                  setForm({ ...form, description: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -339,9 +315,7 @@ return Array.isArray(data) ? data : [];
               <Label>Promo Code</Label>
               <Input
                 value={form.promo_code || ''}
-                onChange={(e) =>
-                  setForm({ ...form, promo_code: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, promo_code: e.target.value })}
                 className="mt-1"
                 placeholder="e.g. SAVE20"
               />
@@ -371,9 +345,7 @@ return Array.isArray(data) ? data : [];
               <Input
                 type="number"
                 value={form.discount_value || ''}
-                onChange={(e) =>
-                  setForm({ ...form, discount_value: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, discount_value: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -383,9 +355,7 @@ return Array.isArray(data) ? data : [];
               <Input
                 type="date"
                 value={form.start_date || ''}
-                onChange={(e) =>
-                  setForm({ ...form, start_date: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -395,9 +365,7 @@ return Array.isArray(data) ? data : [];
               <Input
                 type="date"
                 value={form.end_date || ''}
-                onChange={(e) =>
-                  setForm({ ...form, end_date: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -418,9 +386,7 @@ return Array.isArray(data) ? data : [];
 
             <Button
               onClick={handleSave}
-              disabled={
-                !form.title || createPromo.isPending || updatePromo.isPending
-              }
+              disabled={!form.title || createPromo.isPending || updatePromo.isPending}
             >
               {editing ? 'Update' : 'Create'}
             </Button>
