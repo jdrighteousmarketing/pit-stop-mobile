@@ -110,10 +110,11 @@ export default function EmployeeCustomerDirectory() {
   });
 
   const upcomingBirthdays = customers
-    .map(getBirthdayInfo)
-    .filter(Boolean)
-    .sort((a, b) => a.daysUntil - b.daysUntil)
-    .slice(0, 5);
+  .map(getBirthdayInfo)
+  .filter(Boolean)
+  .filter((c) => c.daysUntil >= 0 && c.daysUntil <= 30)
+  .sort((a, b) => a.daysUntil - b.daysUntil)
+  .slice(0, 5);
 
   const sortedCustomers = [...filteredCustomers].sort((a, b) => {
     const dateA = new Date(a.created_at || a.created_date || 0).getTime();

@@ -39,15 +39,27 @@ function birthdayInfo(customer) {
   if (!month || !day) return null;
 
   const now = new Date();
-  const nextBirthday = new Date(now.getFullYear(), month - 1, day);
 
-  if (Number.isNaN(nextBirthday.getTime())) return null;
+const today = new Date(
+  now.getFullYear(),
+  now.getMonth(),
+  now.getDate()
+);
 
-  if (nextBirthday < now) {
-    nextBirthday.setFullYear(now.getFullYear() + 1);
-  }
+const nextBirthday = new Date(
+  today.getFullYear(),
+  month - 1,
+  day
+);
 
-  const daysUntil = Math.ceil((nextBirthday - now) / (1000 * 60 * 60 * 24));
+if (nextBirthday < today) {
+  nextBirthday.setFullYear(today.getFullYear() + 1);
+}
+
+const daysUntil = Math.ceil(
+  (nextBirthday.getTime() - today.getTime()) /
+    (1000 * 60 * 60 * 24)
+);
 
   return {
     ...customer,

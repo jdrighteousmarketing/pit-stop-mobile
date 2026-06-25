@@ -1,8 +1,19 @@
 import { useState } from 'react';
-import { QrCode, ScanLine } from 'lucide-react';
+import {
+  QrCode,
+  ScanLine,
+  User,
+  Trophy,
+  DollarSign,
+  Gift,
+  History,
+} from 'lucide-react';
 import QRScanner from '@/components/admin/QRScanner';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/lib/supabaseClient';
+
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 function decodePart(value, fallback = '') {
   try {
@@ -10,6 +21,10 @@ function decodePart(value, fallback = '') {
   } catch {
     return value || fallback;
   }
+}
+
+function money(value) {
+  return Number(value || 0).toFixed(2);
 }
 
 function parseCouponText(couponText) {
@@ -43,27 +58,32 @@ function parseCouponText(couponText) {
 function parseRewardText(rewardText) {
   if (!rewardText) return null;
 
-  const firstReward = rewardText.split(',').filter(Boolean)[0];
-  if (!firstReward) return null;
+  const rewards = rewardText
+    .split(',')
+    .filter(Boolean)
+    .map((rewardChunk) => {
+      const [
+        checkoutRewardId,
+        rewardId,
+        rewardName,
+        rewardDescription,
+        pointsRequired,
+      ] = rewardChunk.split('~');
 
-  const [
-    checkoutRewardId,
-    rewardId,
-    rewardName,
-    rewardDescription,
-    pointsRequired,
-  ] = firstReward.split('~');
+      if (!checkoutRewardId || !rewardId) return null;
 
-  if (!checkoutRewardId || !rewardId) return null;
+      return {
+        checkoutRewardId: String(checkoutRewardId),
+        rewardId: String(rewardId),
+        rewardName: decodePart(rewardName, 'Reward Added'),
+        rewardDescription: decodePart(rewardDescription, ''),
+        pointsRequired: pointsRequired ? Number(pointsRequired) : 0,
+        status: 'pending',
+      };
+    })
+    .filter(Boolean);
 
-  return {
-    checkoutRewardId: String(checkoutRewardId),
-    rewardId: String(rewardId),
-    rewardName: decodePart(rewardName, 'Reward Added'),
-    rewardDescription: decodePart(rewardDescription, ''),
-    pointsRequired: pointsRequired ? Number(pointsRequired) : 0,
-    status: 'pending',
-  };
+  return rewards;
 }
 
 function parseShortPitStopQR(code) {
@@ -71,6 +91,31 @@ function parseShortPitStopQR(code) {
 
   if (!raw) {
     throw new Error('Empty QR code');
+  }
+
+  if (raw.startsWith('PS-CHECKOUT|')) {
+    const [, checkoutCode] = raw.split('|');
+
+    return {
+      qrType: 'checkout_session',
+      checkoutCode: decodePart(checkoutCode, ''),
+    };
+  }
+
+  if (raw.startsWith('PS-CUSTOMER|')) {
+    const [, customerCode] = raw.split('|');
+
+    return {
+      qrType: 'customer',
+      customerCode: decodePart(customerCode, ''),
+    };
+  }
+
+  if (/^PIT-\d+/i.test(raw)) {
+    return {
+      qrType: 'customer',
+      customerCode: raw,
+    };
   }
 
   if (raw.startsWith('PS|')) {
@@ -110,6 +155,7 @@ function parseShortPitStopQR(code) {
       : [];
 
     return {
+      qrType: 'checkout',
       customerCode: decodePart(customerCode, 'PIT-CUSTOMER'),
       customerName: decodePart(customerName, 'Customer'),
       subtotal: Number(subtotal || 0),
@@ -126,6 +172,7 @@ function parseShortPitStopQR(code) {
 
   if (parsed?.type === 'pitstop_reward_checkout') {
     return {
+      qrType: 'checkout',
       customerCode: parsed.customerCode || parsed.customerId || 'PIT-CUSTOMER',
       customerName: parsed.customerName || 'Customer',
       customerEmail: parsed.customerEmail || '',
@@ -136,12 +183,17 @@ function parseShortPitStopQR(code) {
       pointsToEarn: Number(parsed.pointsToEarn || 0),
       items: parsed.items || [],
       claimedCoupon: parsed.claimedCoupon || null,
-      claimedReward: parsed.claimedReward || null,
+      claimedReward: Array.isArray(parsed.claimedReward)
+        ? parsed.claimedReward
+        : parsed.claimedReward
+          ? [parsed.claimedReward]
+          : [],
     };
   }
 
   if (parsed?.t === 'ps_checkout') {
     return {
+      qrType: 'checkout',
       customerCode: parsed.code || parsed.cid || 'PIT-CUSTOMER',
       customerName: parsed.name || 'Customer',
       subtotal: Number(parsed.sub || 0),
@@ -155,7 +207,11 @@ function parseShortPitStopQR(code) {
         price: Number(item.p || 0),
       })),
       claimedCoupon: parsed.coupon || null,
-      claimedReward: parsed.reward || null,
+      claimedReward: Array.isArray(parsed.reward)
+        ? parsed.reward
+        : parsed.reward
+          ? [parsed.reward]
+          : [],
     };
   }
 
@@ -167,6 +223,71 @@ export default function ScannerPage() {
 
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [customer, setCustomer] = useState(null);
+  const [updatingPoints, setUpdatingPoints] = useState(false);
+
+  const loadCustomerByCode = async (customerCode) => {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('customer_code', customerCode)
+      .single();
+
+    if (error || !data) {
+      console.error(error);
+      throw new Error('Customer not found');
+    }
+
+    return data;
+  };
+
+  const loadCheckoutSession = async (checkoutCode) => {
+    const { data, error } = await supabase
+      .from('checkout_sessions')
+      .select('*')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('checkout_code', checkoutCode)
+      .eq('status', 'pending')
+      .single();
+
+    if (error || !data) {
+      console.error(error);
+      throw new Error('Checkout session not found');
+    }
+
+    const { error: updateError } = await supabase
+      .from('checkout_sessions')
+      .update({
+        scanned_at: new Date().toISOString(),
+        status: 'scanned',
+      })
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('checkout_code', checkoutCode);
+
+    if (updateError) {
+      console.error('Could not mark checkout scanned:', updateError);
+    }
+
+    return {
+      customerCode: data.customer_code,
+      customerName: data.customer_name || 'Customer',
+      subtotal: Number(data.subtotal || 0),
+      taxAmount: Number(data.tax_amount || 0),
+      total: Number(data.total || 0),
+      pointsToEarn: Number(data.points_to_earn || 0),
+      items: Array.isArray(data.items) ? data.items : [],
+      claimedCoupon: data.claimed_coupon || null,
+      claimedReward: Array.isArray(data.claimed_rewards)
+        ? data.claimed_rewards
+        : data.claimed_reward
+          ? [data.claimed_reward]
+          : [],
+      checkoutCode: data.checkout_code,
+      checkoutSessionId: data.id,
+      scannedAt: new Date().toISOString(),
+    };
+  };
 
   const handleScan = async (code) => {
     setScanning(false);
@@ -175,29 +296,175 @@ export default function ScannerPage() {
     try {
       const parsed = parseShortPitStopQR(code);
 
-      if (!parsed.customerCode || parsed.pointsToEarn === undefined) {
-        toast.error('Checkout QR code is missing customer or points information.');
+      if (parsed.qrType === 'customer') {
+        const foundCustomer = await loadCustomerByCode(parsed.customerCode);
+
+        setCustomer(foundCustomer);
+        toast.success('Customer rewards QR scanned!');
         return;
       }
 
-      const checkoutData = {
-        ...parsed,
-        scannedAt: new Date().toISOString(),
-      };
+      if (parsed.qrType === 'checkout_session') {
+        const checkoutData = await loadCheckoutSession(parsed.checkoutCode);
 
-      localStorage.setItem('pitStopScannedCheckout', JSON.stringify(checkoutData));
+        toast.success('Checkout QR scanned successfully!');
 
-      toast.success('Checkout QR scanned successfully!');
+        navigate('/admin/checkout-review', {
+          state: { checkoutData },
+          replace: true,
+        });
 
-      navigate('/admin/checkout-review', {
-        state: { checkoutData },
-        replace: true,
-      });
+        return;
+      }
+
+      if (parsed.qrType === 'checkout') {
+        if (!parsed.customerCode || parsed.pointsToEarn === undefined) {
+          toast.error('Checkout QR code is missing customer or points information.');
+          return;
+        }
+
+        const checkoutData = {
+          ...parsed,
+          scannedAt: new Date().toISOString(),
+        };
+
+        toast.success('Checkout QR scanned successfully!');
+
+        navigate('/admin/checkout-review', {
+          state: { checkoutData },
+          replace: true,
+        });
+      }
     } catch (error) {
       console.error(error);
-      toast.error('Invalid QR code. Please scan the customer checkout QR.');
+      toast.error('Invalid QR code, expired checkout, or customer not found.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAwardPoints = async () => {
+    if (!customer) return;
+
+    const entered = window.prompt('How many points do you want to award?');
+
+    if (!entered) return;
+
+    const points = Number(entered);
+
+    if (!points || points <= 0) {
+      toast.error('Please enter a valid point amount.');
+      return;
+    }
+
+    setUpdatingPoints(true);
+
+    try {
+      const newBalance = Number(customer.points_balance || 0) + points;
+      const newLifetimePoints = Number(customer.lifetime_points || 0) + points;
+
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({
+          points_balance: newBalance,
+          lifetime_points: newLifetimePoints,
+        })
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customer.customer_code);
+
+      if (updateError) throw updateError;
+
+      const { error: transactionError } = await supabase
+        .from('points_transactions')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_code: customer.customer_code,
+            transaction_type: 'earned',
+            points_amount: points,
+            note: 'Manual points awarded from QR customer profile',
+            employee_name: 'Employee',
+          },
+        ]);
+
+      if (transactionError) throw transactionError;
+
+      setCustomer({
+        ...customer,
+        points_balance: newBalance,
+        lifetime_points: newLifetimePoints,
+      });
+
+      toast.success(`Awarded ${points} points.`);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to award points.');
+    } finally {
+      setUpdatingPoints(false);
+    }
+  };
+
+  const handleRedeemPoints = async () => {
+    if (!customer) return;
+
+    const entered = window.prompt('How many points do you want to redeem?');
+
+    if (!entered) return;
+
+    const points = Number(entered);
+    const currentBalance = Number(customer.points_balance || 0);
+
+    if (!points || points <= 0) {
+      toast.error('Please enter a valid point amount.');
+      return;
+    }
+
+    if (points > currentBalance) {
+      toast.error('Customer does not have enough points.');
+      return;
+    }
+
+    setUpdatingPoints(true);
+
+    try {
+      const newBalance = currentBalance - points;
+
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({
+          points_balance: newBalance,
+        })
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customer.customer_code);
+
+      if (updateError) throw updateError;
+
+      const { error: transactionError } = await supabase
+        .from('points_transactions')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_code: customer.customer_code,
+            transaction_type: 'redeemed',
+            points_amount: -points,
+            note: 'Manual points redeemed from QR customer profile',
+            employee_name: 'Employee',
+          },
+        ]);
+
+      if (transactionError) throw transactionError;
+
+      setCustomer({
+        ...customer,
+        points_balance: newBalance,
+      });
+
+      toast.success(`Redeemed ${points} points.`);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to redeem points.');
+    } finally {
+      setUpdatingPoints(false);
     }
   };
 
@@ -205,10 +472,10 @@ export default function ScannerPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-display font-bold">
-          Rewards Checkout Scanner
+          Rewards QR Scanner
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Scan a customer checkout QR code to award points, confirm coupons, and confirm rewards.
+          Scan checkout QR codes or customer rewards QR codes.
         </p>
       </div>
 
@@ -219,10 +486,9 @@ export default function ScannerPage() {
           </div>
 
           <div className="text-center">
-            <h2 className="font-display font-bold text-lg">Scan Checkout QR</h2>
+            <h2 className="font-display font-bold text-lg">Open Scanner</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Scan the customer&apos;s cart QR code, review the order, then tap
-              Complete.
+              Scan a cart checkout QR or a customer rewards QR.
             </p>
           </div>
 
@@ -237,6 +503,103 @@ export default function ScannerPage() {
           </button>
         </div>
       </div>
+
+      {customer && (
+        <div className="max-w-md mt-6 bg-card border border-border rounded-2xl p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
+              {(customer.name || customer.email || '?')[0].toUpperCase()}
+            </div>
+
+            <div>
+              <h2 className="font-display font-bold text-lg">
+                {customer.name || 'Unknown Customer'}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {customer.customer_code}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-muted/50 rounded-xl p-3 text-center">
+              <Trophy className="w-4 h-4 mx-auto mb-1 text-primary" />
+              <p className="text-xl font-bold text-primary">
+                {Number(customer.points_balance || 0).toLocaleString()}
+              </p>
+              <p className="text-xs text-muted-foreground">Current Points</p>
+            </div>
+
+            <div className="bg-muted/50 rounded-xl p-3 text-center">
+              <DollarSign className="w-4 h-4 mx-auto mb-1 text-primary" />
+              <p className="text-xl font-bold">
+                ${money(customer.lifetime_spend)}
+              </p>
+              <p className="text-xs text-muted-foreground">Lifetime Spend</p>
+            </div>
+
+            <div className="bg-muted/50 rounded-xl p-3 text-center">
+              <User className="w-4 h-4 mx-auto mb-1 text-primary" />
+              <p className="text-xl font-bold">
+                {Number(customer.visit_count || 0)}
+              </p>
+              <p className="text-xs text-muted-foreground">Visits</p>
+            </div>
+
+            <div className="bg-muted/50 rounded-xl p-3 text-center">
+              <History className="w-4 h-4 mx-auto mb-1 text-primary" />
+              <p className="text-xl font-bold">
+                {Number(customer.lifetime_points || 0).toLocaleString()}
+              </p>
+              <p className="text-xs text-muted-foreground">Lifetime Points</p>
+            </div>
+          </div>
+
+          <div className="space-y-1 text-sm">
+            <p>
+              <span className="font-semibold">Email:</span>{' '}
+              {customer.email || '—'}
+            </p>
+            <p>
+              <span className="font-semibold">Phone:</span>{' '}
+              {customer.phone || '—'}
+            </p>
+            <p>
+              <span className="font-semibold">Birthday:</span>{' '}
+              {customer.birthday || '—'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              className="w-full h-11 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-60"
+              onClick={handleAwardPoints}
+              disabled={updatingPoints}
+            >
+              + Award Points
+            </button>
+
+            <button
+              type="button"
+              className="w-full h-11 rounded-xl border border-border font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+              onClick={handleRedeemPoints}
+              disabled={updatingPoints}
+            >
+              <Gift className="w-4 h-4" />
+              Redeem Points
+            </button>
+
+            <button
+              type="button"
+              className="w-full h-11 rounded-xl border border-border font-semibold"
+              onClick={() => navigate('/admin/customers')}
+            >
+              View Customer Directory
+            </button>
+          </div>
+        </div>
+      )}
 
       {scanning && (
         <QRScanner onScan={handleScan} onClose={() => setScanning(false)} />

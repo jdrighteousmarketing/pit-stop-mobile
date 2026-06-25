@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS = {
   terms_of_service_url: '',
   account_deletion_url: '',
   points_per_dollar: 1,
+  max_points_per_customer: 500,
 };
 
 function SaveButton({ isSaving, saved, onClick }) {
@@ -76,10 +77,38 @@ function SaveButton({ isSaving, saved, onClick }) {
   );
 }
 
+function BusinessSettingsLoading() {
+  return (
+    <div className="pb-20">
+      <div className="mb-6">
+        <h1 className="text-2xl font-display font-bold">Business Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Loading business settings...
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="h-5 w-40 bg-muted rounded animate-pulse" />
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="h-10 bg-muted rounded animate-pulse" />
+          <div className="h-10 bg-muted rounded animate-pulse" />
+          <div className="h-10 bg-muted rounded animate-pulse" />
+          <div className="h-10 bg-muted rounded animate-pulse" />
+          <div className="h-12 w-36 bg-muted rounded animate-pulse" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function BusinessSettingsPage() {
   const queryClient = useQueryClient();
 
   const [form, setForm] = useState(DEFAULT_SETTINGS);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [backgroundUploading, setBackgroundUploading] = useState(false);
@@ -94,6 +123,8 @@ export default function BusinessSettingsPage() {
   }, []);
 
   const loadSettings = async () => {
+    setSettingsLoading(true);
+
     try {
       const { data, error } = await supabase
         .from('restaurants')
@@ -113,11 +144,21 @@ export default function BusinessSettingsPage() {
             data.business_hours?.length > 0
               ? data.business_hours
               : DEFAULT_HOURS,
+          points_per_dollar:
+            data.points_per_dollar ?? DEFAULT_SETTINGS.points_per_dollar,
+          max_points_per_customer:
+            data.max_points_per_customer ??
+            DEFAULT_SETTINGS.max_points_per_customer,
         });
+      } else {
+        setForm(DEFAULT_SETTINGS);
       }
     } catch (error) {
       console.error(error);
       toast.error('Failed to load business settings');
+      setForm(DEFAULT_SETTINGS);
+    } finally {
+      setSettingsLoading(false);
     }
   };
 
@@ -156,6 +197,8 @@ export default function BusinessSettingsPage() {
       terms_of_service_url: form.terms_of_service_url || '',
       account_deletion_url: form.account_deletion_url || '',
       points_per_dollar: parseFloat(form.points_per_dollar) || 1,
+      max_points_per_customer:
+        parseFloat(form.max_points_per_customer) || 500,
       active: true,
     };
 
@@ -180,8 +223,13 @@ export default function BusinessSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['businessSettings'] });
       queryClient.invalidateQueries({ queryKey: ['adminBusinessSettings'] });
       queryClient.invalidateQueries({ queryKey: ['homeHeroSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['contactRestaurantSettings'] });
 
-      setForm(cleanData);
+      setForm({
+        ...DEFAULT_SETTINGS,
+        ...cleanData,
+      });
+
       setHasChanges(false);
       setSaved(true);
       toast.success('Settings saved!');
@@ -258,6 +306,10 @@ export default function BusinessSettingsPage() {
     hours[index] = { ...hours[index], [key]: value };
     updateForm('business_hours', hours);
   };
+
+  if (settingsLoading) {
+    return <BusinessSettingsLoading />;
+  }
 
   return (
     <div className="pb-20">
@@ -693,9 +745,10 @@ export default function BusinessSettingsPage() {
               <CardTitle className="text-base">Rewards Settings</CardTitle>
             </CardHeader>
 
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div>
                 <Label>Points Earned per $1 Spent</Label>
+
                 <Input
                   type="number"
                   min="0"
@@ -708,7 +761,40 @@ export default function BusinessSettingsPage() {
                 />
 
                 <p className="text-xs text-muted-foreground mt-1">
-                  Customers earn this many points for every dollar they spend
+                  Customers earn this many points for every dollar they spend.
+                </p>
+              </div>
+
+              <div>
+                <Label>Maximum Points Per Customer</Label>
+
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.max_points_per_customer || 500}
+                  onChange={(e) =>
+                    updateForm('max_points_per_customer', e.target.value)
+                  }
+                  className="mt-1"
+                />
+
+                <p className="text-xs text-muted-foreground mt-1">
+                  Prevent customers from earning more than this many points.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border p-4 bg-muted/20">
+                <p className="text-sm font-medium">Example</p>
+
+                <p className="text-xs text-muted-foreground mt-1">
+                  Points Per Dollar:
+                  <strong> {form.points_per_dollar || 1}</strong>
+                </p>
+
+                <p className="text-xs text-muted-foreground">
+                  Max Customer Points:
+                  <strong> {form.max_points_per_customer || 500}</strong>
                 </p>
               </div>
             </CardContent>

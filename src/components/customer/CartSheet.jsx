@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ShoppingCart,
   Plus,
@@ -28,10 +28,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
-function cleanQrText(value) {
-  return encodeURIComponent(String(value || '').replace(/[|~,]/g, ' ').trim());
-}
-
 function getDiscountLabel(deal) {
   if (deal.discount_type === 'percentage') return `${deal.discount_value || 0}% Off`;
   if (deal.discount_type === 'fixed') return `$${deal.discount_value || 0} Off`;
@@ -39,6 +35,13 @@ function getDiscountLabel(deal) {
   if (deal.discount_type === 'points') return `${deal.discount_value || 2}X Points`;
   if (deal.discount_type === 'free_item') return 'Free Item';
   return 'Special Offer';
+}
+
+function makeCheckoutCode() {
+  return `CHK-${Date.now().toString().slice(-8)}-${Math.random()
+    .toString(36)
+    .slice(2, 6)
+    .toUpperCase()}`;
 }
 
 export default function CartSheet() {
@@ -51,6 +54,11 @@ export default function CartSheet() {
   const [isOpen, setIsOpen] = useState(false);
   const [removingDealId, setRemovingDealId] = useState(null);
   const [removingRewardId, setRemovingRewardId] = useState(null);
+  const [checkoutQrValue, setCheckoutQrValue] = useState('');
+  const [checkoutCode, setCheckoutCode] = useState('');
+  const [creatingCheckout, setCreatingCheckout] = useState(false);
+
+  const creatingRef = useRef(false);
 
   const customerId = customerProfile?.id || null;
 
@@ -117,39 +125,6 @@ export default function CartSheet() {
     },
   });
 
-  useEffect(() => {
-    const handleCheckoutUpdate = () => {
-      refetchPendingDeals();
-      refetchPendingRewards();
-    };
-
-    window.addEventListener(
-      'pitstop_checkout_deals_updated',
-      handleCheckoutUpdate
-    );
-
-    window.addEventListener(
-      'pitstop_checkout_rewards_updated',
-      handleCheckoutUpdate
-    );
-
-    window.addEventListener('focus', handleCheckoutUpdate);
-
-    return () => {
-      window.removeEventListener(
-        'pitstop_checkout_deals_updated',
-        handleCheckoutUpdate
-      );
-
-      window.removeEventListener(
-        'pitstop_checkout_rewards_updated',
-        handleCheckoutUpdate
-      );
-
-      window.removeEventListener('focus', handleCheckoutUpdate);
-    };
-  }, [refetchPendingDeals, refetchPendingRewards]);
-
   const businessSettings = useMemo(() => {
     const saved =
       localStorage.getItem('businessSettings') ||
@@ -163,8 +138,6 @@ export default function CartSheet() {
       return { taxRate: 6, pointsPerDollar: 1 };
     }
   }, []);
-
-  if (isLoading || !customerProfile) return null;
 
   const cartItems = cart?.items || [];
 
@@ -197,58 +170,162 @@ export default function CartSheet() {
   const pointsToEarn = Math.floor(total * pointsPerDollar);
 
   const customerName =
-    customerProfile.full_name || customerProfile.name || 'Customer';
+    customerProfile?.full_name || customerProfile?.name || 'Customer';
 
-  const itemText = cartItems
-    .map((item) => {
-      const name = cleanQrText(item.name);
-      const quantity = Number(item.quantity || 0);
-      const price = Number(item.price || 0).toFixed(2);
+  const checkoutItems = cartItems.map((item) => ({
+    id: item.menu_item_id || item.id || null,
+    name: item.name || 'Item',
+    quantity: Number(item.quantity || 0),
+    price: Number(item.price || 0),
+    category: item.category || item.category_name || null,
+  }));
 
-      return `${name}~${quantity}~${price}`;
-    })
-    .join(',');
+  const claimedCoupon = pendingDeals[0]
+    ? {
+        checkoutDealId: pendingDeals[0].id,
+        promotionId: pendingDeals[0].promotion_id,
+        title: pendingDeals[0].promotion_title || 'Coupon Added',
+        promoCode: pendingDeals[0].promo_code || '',
+        discountType: pendingDeals[0].discount_type || '',
+        discountValue:
+          pendingDeals[0].discount_value !== undefined
+            ? Number(pendingDeals[0].discount_value)
+            : null,
+        status: 'pending',
+      }
+    : null;
 
-  const couponText = pendingDeals
-    .map((deal) =>
-      [
-        deal.id,
-        deal.promotion_id,
-        cleanQrText(deal.promotion_title),
-        cleanQrText(deal.promo_code),
-        cleanQrText(deal.discount_type),
-        deal.discount_value ?? '',
-      ].join('~')
-    )
-    .join(',');
+  const claimedRewards = pendingRewards.map((reward) => ({
+  checkoutRewardId: reward.id,
+  rewardId: reward.reward_id,
+  rewardName: reward.reward_name || 'Reward Added',
+  rewardDescription: reward.reward_description || '',
+  pointsRequired: Number(reward.points_required || 0),
+  status: 'pending',
+}));
 
-  const rewardText = pendingRewards
-    .map((reward) =>
-      [
-        reward.id,
-        reward.reward_id,
-        cleanQrText(reward.reward_name),
-        cleanQrText(reward.reward_description),
-        reward.points_required ?? '',
-      ].join('~')
-    )
-    .join(',');
+  const hasCheckoutContent =
+    cartItems.length > 0 || pendingDeals.length > 0 || pendingRewards.length > 0;
 
-  const qrValue = [
-    'PS',
-    cleanQrText(customerCode),
-    cleanQrText(customerName),
-    subtotal.toFixed(2),
-    taxAmount.toFixed(2),
-    total.toFixed(2),
-    pointsToEarn,
-    itemText,
-    couponText,
-    rewardText,
-  ].join('|');
+  const checkoutSignature = useMemo(
+    () =>
+      JSON.stringify({
+        customerCode,
+        cartItems: checkoutItems,
+        pendingDeals: pendingDeals.map((d) => d.id),
+        pendingRewards: pendingRewards.map((r) => r.id),
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: total.toFixed(2),
+        pointsToEarn,
+      }),
+    [
+      customerCode,
+      checkoutItems,
+      pendingDeals,
+      pendingRewards,
+      subtotal,
+      taxAmount,
+      total,
+      pointsToEarn,
+    ]
+  );
+
+  const createCheckoutQr = async () => {
+    if (!hasCheckoutContent || creatingRef.current) return;
+
+    creatingRef.current = true;
+    setCreatingCheckout(true);
+
+    try {
+      const newCheckoutCode = makeCheckoutCode();
+
+      const checkoutSession = {
+        restaurant_id: RESTAURANT_ID,
+        checkout_code: newCheckoutCode,
+        customer_code: customerCode,
+        customer_name: customerName,
+        subtotal: Number(subtotal.toFixed(2)),
+        tax_amount: Number(taxAmount.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        points_to_earn: pointsToEarn,
+        items: checkoutItems,
+        claimed_coupon: claimedCoupon,
+        claimed_rewards: claimedRewards,
+        status: 'pending',
+      };
+
+      const { error } = await supabase
+        .from('checkout_sessions')
+        .insert([checkoutSession]);
+
+      if (error) throw error;
+
+      setCheckoutCode(newCheckoutCode);
+      setCheckoutQrValue(`PS-CHECKOUT|${newCheckoutCode}`);
+    } catch (error) {
+      console.error('Could not create checkout QR:', error);
+      toast.error(error.message || 'Could not create checkout QR.');
+    } finally {
+      creatingRef.current = false;
+      setCreatingCheckout(false);
+    }
+  };
+
+  useEffect(() => {
+    setCheckoutQrValue('');
+    setCheckoutCode('');
+  }, [checkoutSignature]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!hasCheckoutContent) return;
+    if (checkoutQrValue) return;
+
+    createCheckoutQr();
+  }, [isOpen, hasCheckoutContent, checkoutQrValue, checkoutSignature]);
+
+  useEffect(() => {
+    const handleCheckoutUpdate = () => {
+      refetchPendingDeals();
+      refetchPendingRewards();
+      setCheckoutQrValue('');
+      setCheckoutCode('');
+    };
+
+    window.addEventListener(
+      'pitstop_checkout_deals_updated',
+      handleCheckoutUpdate
+    );
+
+    window.addEventListener(
+      'pitstop_checkout_rewards_updated',
+      handleCheckoutUpdate
+    );
+
+    window.addEventListener('focus', handleCheckoutUpdate);
+
+    return () => {
+      window.removeEventListener(
+        'pitstop_checkout_deals_updated',
+        handleCheckoutUpdate
+      );
+
+      window.removeEventListener(
+        'pitstop_checkout_rewards_updated',
+        handleCheckoutUpdate
+      );
+
+      window.removeEventListener('focus', handleCheckoutUpdate);
+    };
+  }, [refetchPendingDeals, refetchPendingRewards]);
+
+  if (isLoading || !customerProfile) return null;
 
   const handleRemoveDeal = async (deal) => {
     setRemovingDealId(deal.id);
+    setCheckoutQrValue('');
+    setCheckoutCode('');
 
     try {
       const { error } = await supabase
@@ -279,6 +356,8 @@ export default function CartSheet() {
 
   const handleRemoveReward = async (reward) => {
     setRemovingRewardId(reward.id);
+    setCheckoutQrValue('');
+    setCheckoutCode('');
 
     try {
       const pointsToRefund = Number(reward.points_required || 0);
@@ -333,22 +412,6 @@ export default function CartSheet() {
 
       if (transactionError) throw transactionError;
 
-      const savedUser = JSON.parse(
-        localStorage.getItem('pitstop_demo_user') || '{}'
-      );
-
-      const savedCode = savedUser.customer_code || savedUser.customer_id_code;
-
-      if (savedCode === customerCode) {
-        localStorage.setItem(
-          'pitstop_demo_user',
-          JSON.stringify({
-            ...savedUser,
-            points_balance: newBalance,
-          })
-        );
-      }
-
       await refetchPendingRewards();
 
       window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
@@ -364,11 +427,15 @@ export default function CartSheet() {
 
   const handleClearCart = () => {
     clearCart();
+    setCheckoutQrValue('');
+    setCheckoutCode('');
     toast.success('Cart cleared.');
   };
 
   const handleCompletePurchase = () => {
     clearCart();
+    setCheckoutQrValue('');
+    setCheckoutCode('');
     setIsOpen(false);
 
     toast.success(
@@ -407,18 +474,20 @@ export default function CartSheet() {
             {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'} in your
             order
             {pendingDealCount > 0
-              ? ` • ${pendingDealCount} coupon${pendingDealCount === 1 ? '' : 's'} added`
+              ? ` • ${pendingDealCount} coupon${
+                  pendingDealCount === 1 ? '' : 's'
+                } added`
               : ''}
             {pendingRewardCount > 0
-              ? ` • ${pendingRewardCount} reward${pendingRewardCount === 1 ? '' : 's'} added`
+              ? ` • ${pendingRewardCount} reward${
+                  pendingRewardCount === 1 ? '' : 's'
+                } added`
               : ''}
           </SheetDescription>
         </SheetHeader>
 
         <div className="mt-6">
-          {cartItems.length === 0 &&
-          pendingDeals.length === 0 &&
-          pendingRewards.length === 0 ? (
+          {!hasCheckoutContent ? (
             <div className="text-center py-12">
               <ShoppingCart className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
               <p className="text-muted-foreground">Your cart is empty</p>
@@ -572,9 +641,7 @@ export default function CartSheet() {
           )}
         </div>
 
-        {(cartItems.length > 0 ||
-          pendingDeals.length > 0 ||
-          pendingRewards.length > 0) && (
+        {hasCheckoutContent && (
           <div className="mt-6 space-y-4 border-t border-border pt-4">
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
@@ -609,9 +676,30 @@ export default function CartSheet() {
                 Complete Purchase.
               </p>
 
-              <div className="flex justify-center bg-white rounded-lg p-3">
-                <QRCodeSVG value={qrValue} size={180} level="L" includeMargin />
-              </div>
+              {creatingCheckout && !checkoutQrValue ? (
+                <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+                  Preparing QR...
+                </div>
+              ) : checkoutQrValue ? (
+                <>
+                  <div className="flex justify-center bg-white rounded-xl p-5">
+                    <QRCodeSVG
+                      value={checkoutQrValue}
+                      size={260}
+                      level="H"
+                      includeMargin
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Checkout Code: {checkoutCode}
+                  </p>
+                </>
+              ) : (
+                <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+                  QR will appear automatically.
+                </div>
+              )}
 
               <p className="text-xs text-muted-foreground mt-3">
                 Employee/Admin will scan this and tap Complete to award points,
