@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS = {
   account_deletion_url: '',
   points_per_dollar: 1,
   max_points_per_customer: 500,
+  reward_rounding: 'down',
 };
 
 function SaveButton({ isSaving, saved, onClick }) {
@@ -149,6 +150,8 @@ export default function BusinessSettingsPage() {
           max_points_per_customer:
             data.max_points_per_customer ??
             DEFAULT_SETTINGS.max_points_per_customer,
+          reward_rounding:
+            data.reward_rounding || DEFAULT_SETTINGS.reward_rounding,
         });
       } else {
         setForm(DEFAULT_SETTINGS);
@@ -199,6 +202,8 @@ export default function BusinessSettingsPage() {
       points_per_dollar: parseFloat(form.points_per_dollar) || 1,
       max_points_per_customer:
         parseFloat(form.max_points_per_customer) || 500,
+      reward_rounding:
+        form.reward_rounding === 'up' ? 'up' : 'down',
       active: true,
     };
 
@@ -784,6 +789,77 @@ export default function BusinessSettingsPage() {
                 </p>
               </div>
 
+              <div>
+                <Label>Reward Point Rounding</Label>
+
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => updateForm('reward_rounding', 'down')}
+                    className={`rounded-xl border p-4 text-left transition-all ${
+                      (form.reward_rounding || 'down') === 'down'
+                        ? 'border-primary bg-primary/10 shadow-sm'
+                        : 'border-border bg-card hover:bg-muted/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">Round Down</span>
+                      <span
+                        className={`h-4 w-4 rounded-full border flex items-center justify-center ${
+                          (form.reward_rounding || 'down') === 'down'
+                            ? 'border-primary'
+                            : 'border-muted-foreground/40'
+                        }`}
+                      >
+                        {(form.reward_rounding || 'down') === 'down' && (
+                          <span className="h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      A $12.99 order earns 12 points when rewards are set to 1
+                      point per dollar.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => updateForm('reward_rounding', 'up')}
+                    className={`rounded-xl border p-4 text-left transition-all ${
+                      form.reward_rounding === 'up'
+                        ? 'border-primary bg-primary/10 shadow-sm'
+                        : 'border-border bg-card hover:bg-muted/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">Round Up</span>
+                      <span
+                        className={`h-4 w-4 rounded-full border flex items-center justify-center ${
+                          form.reward_rounding === 'up'
+                            ? 'border-primary'
+                            : 'border-muted-foreground/40'
+                        }`}
+                      >
+                        {form.reward_rounding === 'up' && (
+                          <span className="h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      A $12.99 order earns 13 points when rewards are set to 1
+                      point per dollar.
+                    </p>
+                  </button>
+                </div>
+
+                <p className="text-xs text-muted-foreground mt-2">
+                  Round Down is recommended because it matches completed whole
+                  dollars more closely and protects the restaurant.
+                </p>
+              </div>
+
               <div className="rounded-xl border border-border p-4 bg-muted/20">
                 <p className="text-sm font-medium">Example</p>
 
@@ -795,6 +871,16 @@ export default function BusinessSettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Max Customer Points:
                   <strong> {form.max_points_per_customer || 500}</strong>
+                </p>
+
+                <p className="text-xs text-muted-foreground">
+                  Reward Rounding:
+                  <strong>
+                    {' '}
+                    {(form.reward_rounding || 'down') === 'up'
+                      ? 'Round Up'
+                      : 'Round Down'}
+                  </strong>
                 </p>
               </div>
             </CardContent>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   User,
   Mail,
@@ -11,6 +11,10 @@ import {
   Gift,
   ShieldCheck,
   Trash2,
+  ReceiptText,
+  PackageOpen,
+  Coins,
+  Store,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import CustomerQRCode from '@/components/customer/CustomerQRCode';
@@ -18,30 +22,87 @@ import NativeHeader from '@/components/customer/NativeHeader';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
+const CUSTOMER_ORDER_HISTORY_DAYS = 14;
+
+function money(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function formatDate(value) {
+  if (!value) return 'Unknown date';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Unknown time';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return 'Unknown time';
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function getOrderTotal(order) {
+  return Number(order?.total_amount ?? order?.total ?? 0);
+}
+
+function getOrderSubtotal(order) {
+  return Number(order?.subtotal ?? order?.subtotal_amount ?? 0);
+}
+
+function getOrderTax(order) {
+  return Number(order?.tax_amount ?? 0);
+}
+
+function getOrderPoints(order) {
+  return Number(order?.points_awarded ?? order?.points_to_earn ?? 0);
+}
 
 export default function Account() {
   const navigate = useNavigate();
+
   const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [expandedOrderNumber, setExpandedOrderNumber] = useState(null);
 
   const customerUser = JSON.parse(
-  localStorage.getItem('pitstop_demo_user') || '{}'
-);
+    localStorage.getItem('pitstop_demo_user') || '{}'
+  );
 
-const employeeUser = JSON.parse(
-  localStorage.getItem('pitstop_employee_user') || '{}'
-);
+  const employeeUser = JSON.parse(
+    localStorage.getItem('pitstop_employee_user') || '{}'
+  );
 
-const savedUser =
-  employeeUser?.loggedIn === true
-    ? employeeUser
-    : customerUser;
+  const savedUser =
+    employeeUser?.loggedIn === true
+      ? employeeUser
+      : customerUser;
 
-const isEmployee = savedUser?.role === 'employee';
+  const isEmployee = savedUser?.role === 'employee';
 
   const [profile, setProfile] = useState({
     name: savedUser.name || savedUser.email?.split('@')[0] || 'Customer',
@@ -54,72 +115,148 @@ const isEmployee = savedUser?.role === 'employee';
     points_balance: savedUser.points_balance || 0,
   });
 
-  const [form, setForm] = useState({});
-  const [saving, setSaving] = useState(false);
+  const customerCode =
+    profile.customer_id_code || profile.customer_code || savedUser.customer_code;
 
-  const orders = [];
+  const expandedOrder = useMemo(
+    () =>
+      orders.find((order) => order.order_number === expandedOrderNumber) ||
+      null,
+    [orders, expandedOrderNumber]
+  );
+
+  useEffect(() => {
+    if (isEmployee || !customerCode) return;
+
+    loadCustomerOrders();
+  }, [isEmployee, customerCode]);
+
+  const loadCustomerOrders = async () => {
+    setOrdersLoading(true);
+
+    try {
+      const historySince = new Date();
+      historySince.setDate(historySince.getDate() - CUSTOMER_ORDER_HISTORY_DAYS);
+
+      const { data: orderRows, error: ordersError } = await supabase
+        .from('orders')
+        .select(
+          'id, order_number, subtotal, tax_amount, total_amount, points_awarded, payment_method, order_status, employee_name, created_at'
+        )
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerCode)
+        .gte('created_at', historySince.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (ordersError) throw ordersError;
+
+      const safeOrders = Array.isArray(orderRows) ? orderRows : [];
+      const orderNumbers = safeOrders
+        .map((order) => order.order_number)
+        .filter(Boolean);
+
+      let itemsByOrderNumber = {};
+
+      if (orderNumbers.length > 0) {
+        const { data: itemRows, error: itemsError } = await supabase
+          .from('order_items')
+          .select(
+            'id, order_number, item_name, category_name, quantity, unit_price, total_price, created_at'
+          )
+          .eq('restaurant_id', RESTAURANT_ID)
+          .in('order_number', orderNumbers);
+
+        if (itemsError) throw itemsError;
+
+        itemsByOrderNumber = (Array.isArray(itemRows) ? itemRows : []).reduce(
+          (groups, item) => {
+            const orderNumber = item.order_number;
+
+            if (!groups[orderNumber]) {
+              groups[orderNumber] = [];
+            }
+
+            groups[orderNumber].push(item);
+
+            return groups;
+          },
+          {}
+        );
+      }
+
+      setOrders(
+        safeOrders.map((order) => ({
+          ...order,
+          items: itemsByOrderNumber[order.order_number] || [],
+        }))
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error('Could not load order history.');
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
 
   const handleDeleteAccount = async () => {
-  if (
-    !confirm(
-      'Are you sure you want to delete your account? This action cannot be undone.'
-    )
-  ) {
-    return;
-  }
-
-  try {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user?.id) {
-      throw new Error('Could not find logged-in auth user.');
+    if (
+      !confirm(
+        'Are you sure you want to delete your account? This action cannot be undone.'
+      )
+    ) {
+      return;
     }
 
-    const customerCode =
-      profile.customer_id_code || profile.customer_code;
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    const { error: customerDeleteError } = await supabase
-      .from('customers')
-      .delete()
-      .eq('restaurant_id', RESTAURANT_ID)
-      .eq('customer_code', customerCode);
+      if (userError || !user?.id) {
+        throw new Error('Could not find logged-in auth user.');
+      }
 
-    if (customerDeleteError) {
-      throw customerDeleteError;
+      const { error: customerDeleteError } = await supabase
+        .from('customers')
+        .delete()
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerCode);
+
+      if (customerDeleteError) {
+        throw customerDeleteError;
+      }
+
+      const response = await fetch('/.netlify/functions/delete-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Could not delete auth user.');
+      }
+
+      await supabase.auth.signOut();
+
+      localStorage.removeItem('pitstop_demo_user');
+      localStorage.removeItem('pitStopScannedCheckout');
+
+      toast.success('Account permanently deleted.');
+
+      navigate('/register', { replace: true });
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to delete account.');
     }
-
-    const response = await fetch('/.netlify/functions/delete-account', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId: user.id,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Could not delete auth user.');
-    }
-
-    await supabase.auth.signOut();
-
-    localStorage.removeItem('pitstop_demo_user');
-    localStorage.removeItem('pitStopScannedCheckout');
-
-    toast.success('Account permanently deleted.');
-
-    navigate('/register', { replace: true });
-  } catch (error) {
-    console.error(error);
-    toast.error('Failed to delete account.');
-  }
-};
+  };
 
   const startEditing = () => {
     setForm({
@@ -141,7 +278,7 @@ const isEmployee = savedUser?.role === 'employee';
         ...form,
       };
 
-      const customerCode = updatedProfile.customer_id_code;
+      const updatedCustomerCode = updatedProfile.customer_id_code;
 
       const { error } = await supabase
         .from('customers')
@@ -152,7 +289,7 @@ const isEmployee = savedUser?.role === 'employee';
           address: updatedProfile.address || null,
         })
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', customerCode);
+        .eq('customer_code', updatedCustomerCode);
 
       if (error) {
         throw error;
@@ -161,21 +298,21 @@ const isEmployee = savedUser?.role === 'employee';
       setProfile(updatedProfile);
 
       localStorage.setItem(
-  isEmployee ? 'pitstop_employee_user' : 'pitstop_demo_user',
-  JSON.stringify({
-    ...savedUser,
-    name: updatedProfile.name,
-    email: updatedProfile.email,
-    phone: updatedProfile.phone,
-    birthday: updatedProfile.birthday,
-    address: updatedProfile.address,
-    customer_id_code: updatedProfile.customer_id_code,
-    customer_code: updatedProfile.customer_id_code,
-    points_balance: updatedProfile.points_balance,
-    role: savedUser.role || 'user',
-    loggedIn: true,
-  })
-);
+        isEmployee ? 'pitstop_employee_user' : 'pitstop_demo_user',
+        JSON.stringify({
+          ...savedUser,
+          name: updatedProfile.name,
+          email: updatedProfile.email,
+          phone: updatedProfile.phone,
+          birthday: updatedProfile.birthday,
+          address: updatedProfile.address,
+          customer_id_code: updatedProfile.customer_id_code,
+          customer_code: updatedProfile.customer_id_code,
+          points_balance: updatedProfile.points_balance,
+          role: savedUser.role || 'user',
+          loggedIn: true,
+        })
+      );
 
       setEditing(false);
       toast.success('Profile updated!');
@@ -188,15 +325,15 @@ const isEmployee = savedUser?.role === 'employee';
   };
 
   const handleSignOut = () => {
-  localStorage.removeItem('pitstop_demo_user');
-  localStorage.removeItem('pitstop_employee_user');
+    localStorage.removeItem('pitstop_demo_user');
+    localStorage.removeItem('pitstop_employee_user');
 
-  if (isEmployee) {
-    navigate('/employee-login');
-  } else {
-    navigate('/register');
-  }
-};
+    if (isEmployee) {
+      navigate('/employee-login');
+    } else {
+      navigate('/register');
+    }
+  };
 
   return (
     <div className="pb-4">
@@ -316,29 +453,123 @@ const isEmployee = savedUser?.role === 'employee';
       </motion.div>
 
       {!isEmployee && (
-  <CustomerQRCode customerIdCode={profile?.customer_id_code} />
-)}
+        <CustomerQRCode customerIdCode={profile?.customer_id_code} />
+      )}
 
       {!isEmployee && (
-  <div className="grid grid-cols-2 gap-3 px-5 mt-4">
-    <div className="bg-card rounded-2xl border border-border p-4 text-center">
-      <Gift className="w-5 h-5 text-primary mx-auto mb-1" />
-      <p className="text-2xl font-display font-bold">
-        {profile?.points_balance || 0}
-      </p>
-      <p className="text-xs text-muted-foreground">Points</p>
-    </div>
+        <div className="grid grid-cols-2 gap-3 px-5 mt-4">
+          <div className="bg-card rounded-2xl border border-border p-4 text-center">
+            <Gift className="w-5 h-5 text-primary mx-auto mb-1" />
+            <p className="text-2xl font-display font-bold">
+              {profile?.points_balance || 0}
+            </p>
+            <p className="text-xs text-muted-foreground">Points</p>
+          </div>
 
-    <div className="bg-card rounded-2xl border border-border p-4 text-center">
-      <Clock className="w-5 h-5 text-primary mx-auto mb-1" />
-      <p className="text-2xl font-display font-bold">
-        {orders.length}
-      </p>
-      <p className="text-xs text-muted-foreground">Orders</p>
-    </div>
-  </div>
-)}
+          <div className="bg-card rounded-2xl border border-border p-4 text-center">
+            <Clock className="w-5 h-5 text-primary mx-auto mb-1" />
+            <p className="text-2xl font-display font-bold">
+              {ordersLoading ? '...' : orders.length}
+            </p>
+            <p className="text-xs text-muted-foreground">Orders</p>
+          </div>
+        </div>
+      )}
 
+      {!isEmployee && (
+        <div className="px-5 mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-display font-bold">Order History</h2>
+              <p className="text-xs text-muted-foreground">
+                Showing your last 14 days of completed orders.
+              </p>
+            </div>
+
+            <ReceiptText className="w-5 h-5 text-primary" />
+          </div>
+
+          <div className="space-y-3">
+            {ordersLoading ? (
+              <div className="bg-card rounded-2xl border border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Loading order history...
+                </p>
+              </div>
+            ) : orders.length === 0 ? (
+              <div className="bg-card rounded-2xl border border-border p-5 text-center">
+                <PackageOpen className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-semibold">No orders yet</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Completed checkouts from the last 14 days will appear here.
+                </p>
+              </div>
+            ) : (
+              orders.map((order) => {
+                const isExpanded = expandedOrderNumber === order.order_number;
+
+                return (
+                  <div
+                    key={order.id || order.order_number}
+                    className="bg-card rounded-2xl border border-border overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedOrderNumber(isExpanded ? null : order.order_number)
+                      }
+                      className="w-full p-4 text-left hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-display font-bold">
+                            {order.order_number || 'Order'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(order.created_at)}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="font-display font-bold text-primary">
+                            ${money(getOrderTotal(order))}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {getOrderPoints(order)} pts earned
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                          {order.items?.length || 0}{' '}
+                          {(order.items?.length || 0) === 1 ? 'item' : 'items'}
+                        </span>
+
+                        <span>{isExpanded ? 'Hide details' : 'View details'}</span>
+                      </div>
+                    </button>
+
+                    <AnimatePresence initial={false}>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.22 }}
+                          className="overflow-hidden border-t border-border"
+                        >
+                          <OrderDetails order={order} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="px-5 mt-6 space-y-2">
         <LinkRow label="Privacy Policy" href="#" />
@@ -360,6 +591,108 @@ const isEmployee = savedUser?.role === 'employee';
           <span className="text-sm font-medium">Delete Account</span>
         </button>
       </div>
+    </div>
+  );
+}
+
+function OrderDetails({ order }) {
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  return (
+    <div className="p-4 bg-muted/20 space-y-4">
+      <div className="rounded-xl bg-background border border-border p-3">
+        <div className="flex items-center gap-2 mb-3">
+          <Store className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold">Receipt Details</p>
+        </div>
+
+        <div className="space-y-2 text-sm">
+          <ReceiptRow label="Order Number" value={order.order_number || '—'} />
+          <ReceiptRow label="Completed" value={formatDateTime(order.created_at)} />
+          <ReceiptRow
+            label="Employee"
+            value={order.employee_name || 'Employee'}
+          />
+          <ReceiptRow
+            label="Status"
+            value={order.order_status || 'completed'}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-background border border-border p-3">
+        <div className="flex items-center gap-2 mb-3">
+          <PackageOpen className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold">Items Ordered</p>
+        </div>
+
+        {items.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No item details were saved for this order.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <div
+                key={item.id || `${item.order_number}-${item.item_name}`}
+                className="flex items-start justify-between gap-3 text-sm"
+              >
+                <div>
+                  <p className="font-medium">
+                    {Number(item.quantity || 1)}× {item.item_name || 'Item'}
+                  </p>
+
+                  {item.category_name && (
+                    <p className="text-xs text-muted-foreground">
+                      {item.category_name}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">
+                    ${money(item.unit_price)} each
+                  </p>
+                </div>
+
+                <p className="font-semibold">${money(item.total_price)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl bg-background border border-border p-3 space-y-2">
+        <ReceiptRow label="Subtotal" value={`$${money(getOrderSubtotal(order))}`} />
+        <ReceiptRow label="Tax" value={`$${money(getOrderTax(order))}`} />
+
+        <div className="h-px bg-border my-2" />
+
+        <ReceiptRow
+          label="Total"
+          value={`$${money(getOrderTotal(order))}`}
+          strong
+        />
+
+        <div className="flex items-center justify-between pt-2 text-sm text-primary font-semibold">
+          <span className="flex items-center gap-2">
+            <Coins className="w-4 h-4" />
+            Points Earned
+          </span>
+          <span>{getOrderPoints(order)} pts</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReceiptRow({ label, value, strong = false }) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-4 text-sm ${
+        strong ? 'font-bold text-base' : ''
+      }`}
+    >
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right">{value || '—'}</span>
     </div>
   );
 }

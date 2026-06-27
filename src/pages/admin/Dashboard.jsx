@@ -19,13 +19,79 @@ import { supabase } from '@/lib/supabaseClient';
 const RESTAURANT_ID = 'pit_stop_mobile';
 
 const managementTools = [
-  { path: '/admin/menu', icon: UtensilsCrossed, label: 'Menu', desc: 'Add, edit & organize menu items', color: 'from-orange-500/20 to-amber-500/10 border-orange-500/30', iconColor: 'text-orange-400' },
-  { path: '/admin/rewards', icon: Gift, label: 'Rewards', desc: 'Configure loyalty rewards & points', color: 'from-violet-500/20 to-purple-500/10 border-violet-500/30', iconColor: 'text-violet-400' },
-  { path: '/admin/promotions', icon: Tag, label: 'Promotions', desc: 'Manage deals, coupons & offers', color: 'from-emerald-500/20 to-green-500/10 border-emerald-500/30', iconColor: 'text-emerald-400' },
-  { path: '/admin/customers', icon: Users, label: 'Customers', desc: 'View profiles & loyalty data', color: 'from-blue-500/20 to-sky-500/10 border-blue-500/30', iconColor: 'text-blue-400' },
-  { path: '/admin/scanner', icon: ScanLine, label: 'Scanner', desc: 'Scan QR codes & add points', color: 'from-rose-500/20 to-pink-500/10 border-rose-500/30', iconColor: 'text-rose-400' },
-  { path: '/admin/settings', icon: Settings, label: 'Settings', desc: 'Business info, hours & branding', color: 'from-slate-500/20 to-zinc-500/10 border-slate-500/30', iconColor: 'text-slate-400' },
+  {
+    path: '/admin/menu',
+    icon: UtensilsCrossed,
+    label: 'Menu',
+    desc: 'Add, edit & organize menu items',
+    color: 'from-orange-500/20 to-amber-500/10 border-orange-500/30',
+    iconColor: 'text-orange-400',
+  },
+  {
+    path: '/admin/rewards',
+    icon: Gift,
+    label: 'Rewards',
+    desc: 'Configure loyalty rewards & points',
+    color: 'from-violet-500/20 to-purple-500/10 border-violet-500/30',
+    iconColor: 'text-violet-400',
+  },
+  {
+    path: '/admin/promotions',
+    icon: Tag,
+    label: 'Promotions',
+    desc: 'Manage deals, coupons & offers',
+    color: 'from-emerald-500/20 to-green-500/10 border-emerald-500/30',
+    iconColor: 'text-emerald-400',
+  },
+  {
+    path: '/admin/customers',
+    icon: Users,
+    label: 'Customers',
+    desc: 'View profiles & loyalty data',
+    color: 'from-blue-500/20 to-sky-500/10 border-blue-500/30',
+    iconColor: 'text-blue-400',
+  },
+  {
+    path: '/admin/scanner',
+    icon: ScanLine,
+    label: 'Scanner',
+    desc: 'Scan QR codes & add points',
+    color: 'from-rose-500/20 to-pink-500/10 border-rose-500/30',
+    iconColor: 'text-rose-400',
+  },
+  {
+    path: '/admin/settings',
+    icon: Settings,
+    label: 'Settings',
+    desc: 'Business info, hours & branding',
+    color: 'from-slate-500/20 to-zinc-500/10 border-slate-500/30',
+    iconColor: 'text-slate-400',
+  },
 ];
+
+function money(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function formatOrderDate(value) {
+  if (!value) return '';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return '';
+
+  return format(date, 'MMM d • h:mm a');
+}
+
+function getCustomerDisplayName(order) {
+  return (
+    order.customer_name ||
+    order.customer?.name ||
+    order.customer?.email ||
+    order.customer_code ||
+    'Customer'
+  );
+}
 
 export default function Dashboard() {
   const todayStart = startOfDay(new Date()).toISOString();
@@ -46,7 +112,7 @@ export default function Dashboard() {
       ] = await Promise.all([
         supabase
           .from('restaurants')
-          .select('business_name, businessName')
+          .select('business_name, name')
           .eq('restaurant_id', RESTAURANT_ID)
           .maybeSingle(),
 
@@ -70,7 +136,9 @@ export default function Dashboard() {
 
         supabase
           .from('orders')
-          .select('*')
+          .select(
+            'id, order_number, customer_code, customer_name, subtotal, tax_amount, total_amount, total, points_awarded, order_status, employee_name, created_at'
+          )
           .eq('restaurant_id', RESTAURANT_ID)
           .order('created_at', { ascending: false })
           .limit(5),
@@ -109,14 +177,53 @@ export default function Dashboard() {
         0
       );
 
+      const recentOrders = Array.isArray(ordersResult.data)
+        ? ordersResult.data
+        : [];
+
+      const customerCodes = [
+        ...new Set(
+          recentOrders
+            .map((order) => order.customer_code)
+            .filter(Boolean)
+        ),
+      ];
+
+      let customersByCode = {};
+
+      if (customerCodes.length > 0) {
+        const { data: customerRows, error: customerLookupError } = await supabase
+          .from('customers')
+          .select('customer_code, name, email')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .in('customer_code', customerCodes);
+
+        if (customerLookupError) {
+          console.error('Recent order customer lookup error:', customerLookupError);
+        }
+
+        customersByCode = (Array.isArray(customerRows) ? customerRows : []).reduce(
+          (groups, customer) => {
+            groups[customer.customer_code] = customer;
+            return groups;
+          },
+          {}
+        );
+      }
+
+      const enrichedOrders = recentOrders.map((order) => ({
+        ...order,
+        customer: customersByCode[order.customer_code] || null,
+      }));
+
       return {
         businessName:
           restaurantResult.data?.business_name ||
-          restaurantResult.data?.businessName ||
+          restaurantResult.data?.name ||
           'Owner Dashboard',
         customersCount: customersResult.count || 0,
         pointsIssuedToday,
-        orders: ordersResult.data || [],
+        orders: enrichedOrders,
         menuItemsCount: menuItemsResult.count || 0,
         rewardsCount: rewardsResult.count || 0,
         promotionsCount: promotionsResult.count || 0,
@@ -240,22 +347,43 @@ export default function Dashboard() {
               </p>
             ) : (
               <div className="space-y-3">
-                {orders.map((order) => (
-                  <div key={order.id} className="flex justify-between border-b border-border/50 pb-2">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {order.customer_name || order.customer_code || 'Customer'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Order #{order.order_number || 'N/A'}
+                {orders.map((order) => {
+                  const customerName = getCustomerDisplayName(order);
+                  const customerCode = order.customer_code || 'No customer code';
+                  const orderTotal = Number(order.total_amount || order.total || 0);
+                  const orderDate = formatOrderDate(order.created_at);
+
+                  return (
+                    <div
+                      key={order.id || order.order_number}
+                      className="flex items-start justify-between gap-3 border-b border-border/50 pb-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">
+                          {customerName}
+                        </p>
+
+                        <p className="text-xs text-muted-foreground">
+                          {customerCode}
+                        </p>
+
+                        <p className="text-xs text-muted-foreground">
+                          Order #{order.order_number || 'N/A'}
+                        </p>
+
+                        {orderDate && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {orderDate}
+                          </p>
+                        )}
+                      </div>
+
+                      <p className="text-sm font-semibold text-primary shrink-0">
+                        ${money(orderTotal)}
                       </p>
                     </div>
-
-                    <p className="text-sm font-semibold text-primary">
-                      ${Number(order.total_amount || order.total || 0).toFixed(2)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

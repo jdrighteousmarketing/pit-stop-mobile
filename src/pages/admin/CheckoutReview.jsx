@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, CheckCircle, Ticket, Gift } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -38,10 +38,38 @@ function normalizeRewards(claimedReward) {
   return [claimedReward];
 }
 
+
+function normalizeRoundingRule(value) {
+  return value === 'up' ? 'up' : 'down';
+}
+
+function calculateRewardPoints(orderTotal, pointsPerDollar, roundingRule) {
+  const rawPoints = Number(orderTotal || 0) * Number(pointsPerDollar || 1);
+
+  if (!Number.isFinite(rawPoints) || rawPoints <= 0) {
+    return 0;
+  }
+
+  return normalizeRoundingRule(roundingRule) === 'up'
+    ? Math.ceil(rawPoints)
+    : Math.floor(rawPoints);
+}
+
+function getRoundingLabel(roundingRule) {
+  return normalizeRoundingRule(roundingRule) === 'up'
+    ? 'Round Up'
+    : 'Round Down';
+}
+
 export default function CheckoutReview() {
   const navigate = useNavigate();
   const location = useLocation();
   const [awarding, setAwarding] = useState(false);
+  const [rewardSettings, setRewardSettings] = useState({
+    pointsPerDollar: 1,
+    maxPointsPerCustomer: 500,
+    rewardPointRounding: 'down',
+  });
 
   const checkoutData = useMemo(() => {
     const stateData = location.state?.checkoutData;
@@ -59,6 +87,40 @@ export default function CheckoutReview() {
       checkoutData.claimed_rewards
   );
 
+  useEffect(() => {
+    const loadRewardSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('restaurants')
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        setRewardSettings({
+          pointsPerDollar: Number(data?.points_per_dollar || 1),
+          maxPointsPerCustomer: Number(data?.max_points_per_customer || 500),
+          rewardPointRounding: normalizeRoundingRule(
+            data?.reward_point_rounding || 'down'
+          ),
+        });
+      } catch (error) {
+        console.error(error);
+        toast.error('Could not load reward settings. Using default rewards.');
+      }
+    };
+
+    loadRewardSettings();
+  }, []);
+
+  const orderTotal = Number(checkoutData.total || 0);
+  const previewPointsToAward = calculateRewardPoints(
+    orderTotal,
+    rewardSettings.pointsPerDollar,
+    rewardSettings.rewardPointRounding
+  );
+
   const handleCompleteAward = async () => {
     setAwarding(true);
 
@@ -72,7 +134,7 @@ export default function CheckoutReview() {
 
       const { data: settings, error: settingsError } = await supabase
         .from('restaurants')
-        .select('points_per_dollar, max_points_per_customer')
+        .select('*')
         .eq('restaurant_id', RESTAURANT_ID)
         .maybeSingle();
 
@@ -80,9 +142,15 @@ export default function CheckoutReview() {
 
       const pointsPerDollar = Number(settings?.points_per_dollar || 1);
       const maxPointsPerCustomer = Number(settings?.max_points_per_customer || 500);
+      const rewardPointRounding = normalizeRoundingRule(
+        settings?.reward_point_rounding || 'down'
+      );
 
-      const orderTotal = Number(checkoutData.total || 0);
-      const requestedPoints = Math.round(orderTotal * pointsPerDollar);
+      const requestedPoints = calculateRewardPoints(
+        orderTotal,
+        pointsPerDollar,
+        rewardPointRounding
+      );
 
       const { data: customer, error: fetchError } = await supabase
         .from('customers')
@@ -172,8 +240,8 @@ export default function CheckoutReview() {
               points_amount: actualPointsAwarded,
               note:
                 actualPointsAwarded < requestedPoints
-                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar. Capped at ${maxPointsPerCustomer} max points.`
-                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar.`,
+                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardPointRounding)}. Capped at ${maxPointsPerCustomer} max points.`
+                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardPointRounding)}.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
               awarded_by_employee_id: staffUser?.id || null,
               awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
@@ -445,8 +513,13 @@ export default function CheckoutReview() {
 
           <div className="flex justify-between text-primary font-bold">
             <span>Points to Award</span>
-            <span>{checkoutData.pointsToEarn || 0} pts</span>
+            <span>{previewPointsToAward} pts</span>
           </div>
+
+          <p className="text-xs text-muted-foreground text-right">
+            {rewardSettings.pointsPerDollar} point(s) per $1 •{' '}
+            {getRoundingLabel(rewardSettings.rewardPointRounding)}
+          </p>
         </div>
 
         <button

@@ -253,12 +253,12 @@ export default function CartSheet() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('restaurants')
-        .select('points_per_dollar')
+        .select('points_per_dollar, reward_rounding')
         .eq('restaurant_id', RESTAURANT_ID)
         .maybeSingle();
 
       if (error) throw error;
-      return data || { points_per_dollar: 1 };
+      return data || { points_per_dollar: 1, reward_rounding: 'down' };
     },
   });
 
@@ -321,9 +321,14 @@ export default function CartSheet() {
 
   const taxRate = TAX_RATE;
   const pointsPerDollar = Number(restaurantSettings?.points_per_dollar || 1);
+  const rewardRounding = restaurantSettings?.reward_rounding === 'up' ? 'up' : 'down';
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
-  const pointsToEarn = Math.round(total * pointsPerDollar);
+  const rawPointsToEarn = total * pointsPerDollar;
+  const pointsToEarn =
+    rewardRounding === 'up'
+      ? Math.ceil(rawPointsToEarn)
+      : Math.floor(rawPointsToEarn);
 
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
@@ -379,6 +384,7 @@ export default function CartSheet() {
         total: total.toFixed(2),
         taxRate,
         pointsPerDollar,
+        rewardRounding,
         pointsToEarn,
       }),
     [
@@ -391,6 +397,7 @@ export default function CartSheet() {
       total,
       taxRate,
       pointsPerDollar,
+      rewardRounding,
       pointsToEarn,
     ]
   );
