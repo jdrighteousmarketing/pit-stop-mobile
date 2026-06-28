@@ -1,23 +1,35 @@
 import { useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/hooks/useCart';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 export default function AddToCartButton({ menuItem }) {
+  const navigate = useNavigate();
   const { data: customerProfile, isLoading } = useCustomerProfile();
   const { addToCart, isAdding } = useCart(customerProfile?.id);
 
   const [added, setAdded] = useState(false);
 
-  if (isLoading || !customerProfile) {
-    return null;
-  }
+  const isDisabled = menuItem.is_sold_out || menuItem.is_available === false;
+  const hasCustomerProfile = Boolean(customerProfile?.id);
 
   const handleAddToCart = () => {
-    if (added || isAdding) return;
+    if (isLoading) {
+      toast.message('Loading your account...');
+      return;
+    }
+
+    if (!hasCustomerProfile) {
+      toast.error('Please log in to add items to your cart.');
+      navigate('/login');
+      return;
+    }
+
+    if (added || isAdding || isDisabled) return;
 
     addToCart(menuItem, {
       onSuccess: () => {
@@ -36,7 +48,12 @@ export default function AddToCartButton({ menuItem }) {
     });
   };
 
-  const isDisabled = menuItem.is_sold_out || menuItem.is_available === false;
+  const buttonLabel = (() => {
+    if (isLoading) return 'Loading...';
+    if (!hasCustomerProfile) return 'Log In to Order';
+    if (isDisabled) return 'Unavailable';
+    return 'Add to Cart';
+  })();
 
   return (
     <motion.div
@@ -61,7 +78,7 @@ export default function AddToCartButton({ menuItem }) {
           added ? 'shadow-[0_0_22px_rgba(34,197,94,0.55)]' : ''
         }`}
         onClick={handleAddToCart}
-        disabled={isDisabled || isAdding}
+        disabled={isDisabled || isAdding || isLoading}
       >
         <AnimatePresence mode="wait" initial={false}>
           {isAdding ? (
@@ -93,8 +110,12 @@ export default function AddToCartButton({ menuItem }) {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
             >
-              <Plus className="w-4 h-4" />
-              {isDisabled ? 'Unavailable' : 'Add to Cart'}
+              {!hasCustomerProfile && !isLoading ? (
+                <Lock className="w-4 h-4" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              {buttonLabel}
             </motion.span>
           )}
         </AnimatePresence>

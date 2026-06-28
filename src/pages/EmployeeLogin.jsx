@@ -45,7 +45,7 @@ export default function EmployeeLogin() {
         .eq("restaurant_id", RESTAURANT_ID)
         .eq("auth_user_id", authUserId)
         .eq("is_active", true)
-        .single();
+        .maybeSingle();
 
       if (employeeError || !employee) {
         await supabase.auth.signOut();
@@ -54,7 +54,7 @@ export default function EmployeeLogin() {
         return;
       }
 
-      if (employee.role !== "employee") {
+      if (String(employee.role || "").toLowerCase() !== "employee") {
         await supabase.auth.signOut();
         setError("Access denied. This login is for employees only.");
         setLoading(false);
@@ -68,24 +68,11 @@ export default function EmployeeLogin() {
         })
         .eq("id", employee.id);
 
-      localStorage.setItem(
-        "pitstop_employee_user",
-        JSON.stringify({
-          id: employee.id,
-          auth_user_id: authUserId,
-          name: employee.full_name || normalizedEmail.split("@")[0],
-          email: employee.email,
-          role: employee.role,
-          restaurant_id: employee.restaurant_id,
-          loggedIn: true,
-        })
-      );
-
       sessionStorage.removeItem("adminAccessGranted");
 
       window.location.replace("/admin/employee-dashboard");
     } catch (err) {
-      console.error(err);
+      console.error("Employee login failed:", err);
       setError(err.message || "Invalid email or password");
       setLoading(false);
     }
@@ -100,11 +87,14 @@ export default function EmployeeLogin() {
         <>
           <div className="flex flex-col gap-2 text-center">
             <span className="text-sm text-muted-foreground">
-  First time?{" "}
-  <Link to="/employee-signup" className="text-primary font-medium hover:underline">
-    Employee Sign Up
-  </Link>
-</span>
+              First time?{" "}
+              <Link
+                to="/employee-signup"
+                className="text-primary font-medium hover:underline"
+              >
+                Employee Sign Up
+              </Link>
+            </span>
           </div>
         </>
       }
@@ -118,8 +108,10 @@ export default function EmployeeLogin() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
+
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+
             <Input
               id="email"
               type="email"
@@ -137,13 +129,18 @@ export default function EmployeeLogin() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
-            <Link to="/forgot-password" className="text-xs text-primary hover:underline">
+
+            <Link
+              to="/forgot-password"
+              className="text-xs text-primary hover:underline"
+            >
               Forgot password?
             </Link>
           </div>
 
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+
             <Input
               id="password"
               type="password"

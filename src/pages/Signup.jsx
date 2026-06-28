@@ -38,7 +38,7 @@ export default function Signup() {
       const name = cleanEmail.split("@")[0];
       const customerCode = createCustomerCode();
 
-      const { error: authError } = await supabase.auth.signUp({
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
@@ -50,8 +50,15 @@ export default function Signup() {
         throw authError;
       }
 
+      const authUserId = authData?.user?.id;
+
+      if (!authUserId) {
+        throw new Error("Could not create customer auth user.");
+      }
+
       const customerRow = {
         restaurant_id: RESTAURANT_ID,
+        auth_user_id: authUserId,
         customer_code: customerCode,
         name,
         email: cleanEmail,
@@ -78,7 +85,7 @@ export default function Signup() {
         "Account created successfully! Please check your email and click the verification link before logging in."
       );
     } catch (err) {
-      console.error(err);
+      console.error("Customer signup failed:", err);
       setError(err.message || "Signup failed. Please try again.");
     } finally {
       setLoading(false);

@@ -17,6 +17,7 @@ import {
   Store,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/lib/AuthContext';
 import CustomerQRCode from '@/components/customer/CustomerQRCode';
 import NativeHeader from '@/components/customer/NativeHeader';
 import { Input } from '@/components/ui/input';
@@ -64,7 +65,7 @@ function formatDateTime(value) {
 }
 
 function getOrderTotal(order) {
-  return Number(order?.total_amount ?? order?.total ?? 0);
+  return Number(order?.total_amount ?? 0);
 }
 
 function getOrderSubtotal(order) {
@@ -79,8 +80,52 @@ function getOrderPoints(order) {
   return Number(order?.points_awarded ?? order?.points_to_earn ?? 0);
 }
 
+function normalizeProfileFromUser(user) {
+  const profile = user?.profile || {};
+  const role = user?.role || profile?.role || 'customer';
+
+  return {
+    id: profile.id || user?.id || '',
+    auth_user_id: user?.auth_user_id || user?.id || profile.auth_user_id || '',
+    name:
+      profile.name ||
+      profile.full_name ||
+      user?.name ||
+      user?.full_name ||
+      user?.email?.split('@')[0] ||
+      'Customer',
+    email: profile.email || user?.email || '',
+    phone: profile.phone || '',
+    birthday: profile.birthday || '',
+    address: profile.address || '',
+    role,
+    restaurant_id: profile.restaurant_id || user?.restaurant_id || RESTAURANT_ID,
+    customer_id_code:
+      profile.customer_id_code ||
+      profile.customer_code ||
+      user?.customer_id_code ||
+      user?.customer_code ||
+      '',
+    customer_code:
+      profile.customer_code ||
+      profile.customer_id_code ||
+      user?.customer_code ||
+      user?.customer_id_code ||
+      '',
+    points_balance: Number(profile.points_balance || user?.points_balance || 0),
+    lifetime_points: Number(
+      profile.lifetime_points ||
+        profile.total_points_earned ||
+        user?.lifetime_points ||
+        user?.total_points_earned ||
+        0
+    ),
+  };
+}
+
 export default function Account() {
   const navigate = useNavigate();
+  const { user, isAuthenticated, isLoadingAuth, logout, checkUserAuth } = useAuth();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
@@ -88,35 +133,13 @@ export default function Account() {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [expandedOrderNumber, setExpandedOrderNumber] = useState(null);
+  const [profile, setProfile] = useState(() => normalizeProfileFromUser(user));
 
-  const customerUser = JSON.parse(
-    localStorage.getItem('pitstop_demo_user') || '{}'
-  );
-
-  const employeeUser = JSON.parse(
-    localStorage.getItem('pitstop_employee_user') || '{}'
-  );
-
-  const savedUser =
-    employeeUser?.loggedIn === true
-      ? employeeUser
-      : customerUser;
-
-  const isEmployee = savedUser?.role === 'employee';
-
-  const [profile, setProfile] = useState({
-    name: savedUser.name || savedUser.email?.split('@')[0] || 'Customer',
-    email: savedUser.email || 'customer@pitstop.com',
-    phone: savedUser.phone || '',
-    birthday: savedUser.birthday || '',
-    address: savedUser.address || '',
-    customer_id_code:
-      savedUser.customer_id_code || savedUser.customer_code || 'PIT-12345',
-    points_balance: savedUser.points_balance || 0,
-  });
+  const isEmployee = profile?.role === 'employee';
+  const isAdmin = profile?.role === 'admin';
 
   const customerCode =
-    profile.customer_id_code || profile.customer_code || savedUser.customer_code;
+    profile.customer_id_code || profile.customer_code || '';
 
   const expandedOrder = useMemo(
     () =>
@@ -126,12 +149,25 @@ export default function Account() {
   );
 
   useEffect(() => {
-    if (isEmployee || !customerCode) return;
+    if (!isLoadingAuth && !isAuthenticated) {
+      navigate('/login', { replace: true });
+    }
+  }, [isAuthenticated, isLoadingAuth, navigate]);
 
-    loadCustomerOrders();
-  }, [isEmployee, customerCode]);
+  useEffect(() => {
+    if (!user) return;
 
-  const loadCustomerOrders = async () => {
+    setProfile(normalizeProfileFromUser(user));
+  }, [user]);
+
+  useEffect(() => {
+    if (isLoadingAuth || !isAuthenticated) return;
+    if (isEmployee || isAdmin || !customerCode) return;
+
+    loadCustomerOrders(customerCode);
+  }, [isLoadingAuth, isAuthenticated, isEmployee, isAdmin, customerCode]);
+
+  const loadCustomerOrders = async (code) => {
     setOrdersLoading(true);
 
     try {
@@ -144,7 +180,8 @@ export default function Account() {
           'id, order_number, subtotal, tax_amount, total_amount, points_awarded, payment_method, order_status, employee_name, created_at'
         )
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', customerCode)
+        .eq('customer_code', code)
+        .eq('order_status', 'completed')
         .gte('created_at', historySince.toISOString())
         .order('created_at', { ascending: false });
 
@@ -200,6 +237,11 @@ export default function Account() {
   };
 
   const handleDeleteAccount = async () => {
+    if (isEmployee || isAdmin) {
+      toast.error('Only customer accounts can be deleted here.');
+      return;
+    }
+
     if (
       !confirm(
         'Are you sure you want to delete your account? This action cannot be undone.'
@@ -210,11 +252,11 @@ export default function Account() {
 
     try {
       const {
-        data: { user },
+        data: { user: authUser },
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError || !user?.id) {
+      if (userError || !authUser?.id) {
         throw new Error('Could not find logged-in auth user.');
       }
 
@@ -222,7 +264,7 @@ export default function Account() {
         .from('customers')
         .delete()
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', customerCode);
+        .eq('auth_user_id', authUser.id);
 
       if (customerDeleteError) {
         throw customerDeleteError;
@@ -234,7 +276,7 @@ export default function Account() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: user.id,
+          userId: authUser.id,
         }),
       });
 
@@ -245,8 +287,6 @@ export default function Account() {
       }
 
       await supabase.auth.signOut();
-
-      localStorage.removeItem('pitstop_demo_user');
       localStorage.removeItem('pitStopScannedCheckout');
 
       toast.success('Account permanently deleted.');
@@ -273,46 +313,59 @@ export default function Account() {
     setSaving(true);
 
     try {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !authUser?.id) {
+        throw new Error('Could not find logged-in auth user.');
+      }
+
       const updatedProfile = {
         ...profile,
         ...form,
       };
 
-      const updatedCustomerCode = updatedProfile.customer_id_code;
+      if (isEmployee) {
+        const { error } = await supabase
+          .from('employees')
+          .update({
+            full_name: updatedProfile.name,
+            phone: updatedProfile.phone || null,
+            address: updatedProfile.address || null,
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', authUser.id);
 
-      const { error } = await supabase
-        .from('customers')
-        .update({
-          name: updatedProfile.name,
-          phone: updatedProfile.phone || null,
-          birthday: updatedProfile.birthday || null,
-          address: updatedProfile.address || null,
-        })
-        .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', updatedCustomerCode);
+        if (error) throw error;
+      } else if (isAdmin) {
+        const { error } = await supabase
+          .from('admins')
+          .update({
+            full_name: updatedProfile.name,
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', authUser.id);
 
-      if (error) {
-        throw error;
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('customers')
+          .update({
+            name: updatedProfile.name,
+            phone: updatedProfile.phone || null,
+            birthday: updatedProfile.birthday || null,
+            address: updatedProfile.address || null,
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', authUser.id);
+
+        if (error) throw error;
       }
 
       setProfile(updatedProfile);
-
-      localStorage.setItem(
-        isEmployee ? 'pitstop_employee_user' : 'pitstop_demo_user',
-        JSON.stringify({
-          ...savedUser,
-          name: updatedProfile.name,
-          email: updatedProfile.email,
-          phone: updatedProfile.phone,
-          birthday: updatedProfile.birthday,
-          address: updatedProfile.address,
-          customer_id_code: updatedProfile.customer_id_code,
-          customer_code: updatedProfile.customer_id_code,
-          points_balance: updatedProfile.points_balance,
-          role: savedUser.role || 'user',
-          loggedIn: true,
-        })
-      );
+      await checkUserAuth();
 
       setEditing(false);
       toast.success('Profile updated!');
@@ -324,16 +377,34 @@ export default function Account() {
     }
   };
 
-  const handleSignOut = () => {
-    localStorage.removeItem('pitstop_demo_user');
-    localStorage.removeItem('pitstop_employee_user');
-
+  const handleSignOut = async () => {
     if (isEmployee) {
-      navigate('/employee-login');
-    } else {
-      navigate('/register');
+      await logout(false);
+      navigate('/employee-login', { replace: true });
+      return;
     }
+
+    if (isAdmin) {
+      await logout(false);
+      navigate('/admin-login', { replace: true });
+      return;
+    }
+
+    await logout(false);
+    navigate('/login', { replace: true });
   };
+
+  if (isLoadingAuth) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="pb-4">
@@ -380,29 +451,35 @@ export default function Account() {
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 className="mt-1 h-11"
+                disabled={isAdmin}
               />
             </div>
 
-            <div>
-              <Label className="text-sm text-muted-foreground">Birthday</Label>
-              <Input
-                type="date"
-                value={form.birthday}
-                onChange={(e) =>
-                  setForm({ ...form, birthday: e.target.value })
-                }
-                className="mt-1 h-11"
-              />
-            </div>
+            {!isAdmin && (
+              <div>
+                <Label className="text-sm text-muted-foreground">Birthday</Label>
+                <Input
+                  type="date"
+                  value={form.birthday}
+                  onChange={(e) =>
+                    setForm({ ...form, birthday: e.target.value })
+                  }
+                  className="mt-1 h-11"
+                  disabled={isEmployee}
+                />
+              </div>
+            )}
 
-            <div>
-              <Label className="text-sm text-muted-foreground">Address</Label>
-              <Input
-                value={form.address}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-                className="mt-1 h-11"
-              />
-            </div>
+            {!isAdmin && (
+              <div>
+                <Label className="text-sm text-muted-foreground">Address</Label>
+                <Input
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  className="mt-1 h-11"
+                />
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2">
               <Button
@@ -427,19 +504,25 @@ export default function Account() {
           <div className="space-y-3">
             <InfoRow icon={Mail} label="Email" value={profile?.email} />
             <InfoRow icon={Phone} label="Phone" value={profile?.phone} />
-            <InfoRow
-              icon={Cake}
-              label="Birthday"
-              value={
-                profile?.birthday
-                  ? (() => {
-                      const [y, m, d] = profile.birthday.split('-');
-                      return new Date(y, m - 1, d).toLocaleDateString();
-                    })()
-                  : null
-              }
-            />
-            <InfoRow icon={MapPin} label="Address" value={profile?.address} />
+
+            {!isAdmin && (
+              <InfoRow
+                icon={Cake}
+                label="Birthday"
+                value={
+                  profile?.birthday
+                    ? (() => {
+                        const [y, m, d] = profile.birthday.split('-');
+                        return new Date(y, m - 1, d).toLocaleDateString();
+                      })()
+                    : null
+                }
+              />
+            )}
+
+            {!isAdmin && (
+              <InfoRow icon={MapPin} label="Address" value={profile?.address} />
+            )}
 
             <Button
               variant="outline"
@@ -452,11 +535,11 @@ export default function Account() {
         )}
       </motion.div>
 
-      {!isEmployee && (
+      {!isEmployee && !isAdmin && (
         <CustomerQRCode customerIdCode={profile?.customer_id_code} />
       )}
 
-      {!isEmployee && (
+      {!isEmployee && !isAdmin && (
         <div className="grid grid-cols-2 gap-3 px-5 mt-4">
           <div className="bg-card rounded-2xl border border-border p-4 text-center">
             <Gift className="w-5 h-5 text-primary mx-auto mb-1" />
@@ -476,7 +559,7 @@ export default function Account() {
         </div>
       )}
 
-      {!isEmployee && (
+      {!isEmployee && !isAdmin && (
         <div className="px-5 mt-6">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -583,13 +666,15 @@ export default function Account() {
           <span className="text-sm font-medium">Sign Out</span>
         </button>
 
-        <button
-          onClick={handleDeleteAccount}
-          className="flex items-center gap-3 w-full p-3 bg-card rounded-xl border border-border text-destructive hover:bg-destructive/10 transition-colors"
-        >
-          <Trash2 className="w-4 h-4" />
-          <span className="text-sm font-medium">Delete Account</span>
-        </button>
+        {!isEmployee && !isAdmin && (
+          <button
+            onClick={handleDeleteAccount}
+            className="flex items-center gap-3 w-full p-3 bg-card rounded-xl border border-border text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="text-sm font-medium">Delete Account</span>
+          </button>
+        )}
       </div>
     </div>
   );

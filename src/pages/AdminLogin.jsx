@@ -1,14 +1,19 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Mail, Lock, Loader2, ShieldCheck } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import { supabase } from "@/lib/supabaseClient";
+
+const RESTAURANT_ID = "pit_stop_mobile";
 
 export default function AdminLogin() {
-  const [email, setEmail] = useState("admin@pitstop.com");
-  const [password, setPassword] = useState("PitStopAdmin2026!");
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -18,26 +23,47 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      if (email !== "admin@pitstop.com" || password !== "PitStopAdmin2026!") {
+      const cleanEmail = email.trim().toLowerCase();
+
+      const { data: authData, error: authError } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+      if (authError || !authData?.user) {
         setError("Invalid admin email or password");
         setLoading(false);
         return;
       }
 
-      localStorage.setItem(
-        "pitstop_demo_user",
-        JSON.stringify({
-          name: "Pit Stop Admin",
-          email: "admin@pitstop.com",
-          role: "admin",
-          loggedIn: true,
-        })
-      );
+      const { data: adminData, error: adminError } = await supabase
+        .from("admins")
+        .select("*")
+        .eq("auth_user_id", authData.user.id)
+        .eq("restaurant_id", RESTAURANT_ID)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (adminError || !adminData) {
+        await supabase.auth.signOut();
+        setError("This account does not have admin access.");
+        setLoading(false);
+        return;
+      }
+
+      if (String(adminData.role || "").toLowerCase() !== "admin") {
+        await supabase.auth.signOut();
+        setError("This account is not an admin account.");
+        setLoading(false);
+        return;
+      }
 
       sessionStorage.setItem("adminAccessGranted", "true");
 
-      window.location.href = "/admin";
+      window.location.replace("/admin");
     } catch (err) {
+      console.error("Admin login failed:", err);
       setError("Admin login failed");
       setLoading(false);
     }
@@ -74,7 +100,7 @@ export default function AdminLogin() {
               id="email"
               type="email"
               autoComplete="email"
-              placeholder="admin@pitstop.com"
+              placeholder="admin@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="pl-10 h-12"
@@ -85,12 +111,7 @@ export default function AdminLogin() {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            <span className="text-xs text-muted-foreground">
-              demo: PitStopAdmin2026!
-            </span>
-          </div>
+          <Label htmlFor="password">Password</Label>
 
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -99,7 +120,7 @@ export default function AdminLogin() {
               id="password"
               type="password"
               autoComplete="current-password"
-              placeholder="PitStopAdmin2026!"
+              placeholder="Enter your password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="pl-10 h-12"

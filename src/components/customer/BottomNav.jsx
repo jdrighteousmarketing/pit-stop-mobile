@@ -8,7 +8,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useEffect, useState } from 'react';
+import { useAuth } from '@/lib/AuthContext';
 import { pushToStack } from '@/lib/navigationStack';
 
 const customerNavItems = [
@@ -22,24 +22,16 @@ const customerNavItems = [
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [role, setRole] = useState('user');
+  const { user } = useAuth();
 
-  useEffect(() => {
-    const savedUser = JSON.parse(localStorage.getItem('pitstop_demo_user') || '{}');
-    setRole(savedUser.role || 'user');
-  }, [location.pathname]);
-
+  const role = String(user?.role || 'customer').toLowerCase();
   const isAdmin = role === 'admin' || role === 'owner_admin';
   const isEmployee = role === 'employee';
   const showDashboard = isAdmin || isEmployee;
 
   const navItems = showDashboard
     ? [
-        { path: '/', icon: Home, label: 'Home' },
-        { path: '/menu', icon: UtensilsCrossed, label: 'Menu' },
-        { path: '/rewards', icon: Gift, label: 'Rewards' },
-        { path: '/promotions', icon: Tag, label: 'Deals' },
-        { path: '/account', icon: User, label: 'Account' },
+        ...customerNavItems,
         {
           path: isEmployee ? '/admin/employee-dashboard' : '/admin',
           icon: LayoutDashboard,

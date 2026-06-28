@@ -14,9 +14,10 @@ import {
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import PageTransition from '@/components/PageTransition';
+import { useAuth } from '@/lib/AuthContext';
 
 const ownerAdminNavItems = [
   { path: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
@@ -43,56 +44,16 @@ const employeeNavItems = [
 
 export default function AdminLayout() {
   const location = useLocation();
+  const { user, isAuthenticated, isLoadingAuth, logout } = useAuth();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [user, setUser] = useState(null);
-  const [hasFullAccess, setHasFullAccess] = useState(false);
-  const [isEmployee, setIsEmployee] = useState(false);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const savedAdminUser = JSON.parse(
-      localStorage.getItem('pitstop_demo_user') || '{}'
-    );
+  const userRole = String(user?.role || '').toLowerCase();
+  const isEmployee = userRole === 'employee';
+  const isAdmin = userRole === 'admin' || userRole === 'owner_admin';
+  const hasFullAccess = isAdmin && !isEmployee;
 
-    const savedEmployeeUser = JSON.parse(
-      localStorage.getItem('pitstop_employee_user') || '{}'
-    );
-
-    const savedUser = savedEmployeeUser?.loggedIn
-      ? savedEmployeeUser
-      : savedAdminUser;
-
-    const adminAccessGranted =
-      sessionStorage.getItem('adminAccessGranted') === 'true';
-
-    if (!savedUser?.loggedIn) {
-      setUser(null);
-      setHasFullAccess(false);
-      setIsEmployee(false);
-      setLoading(false);
-      return;
-    }
-
-    const userRole = savedUser.role || 'user';
-
-    const localUser = {
-      id: savedUser.id || savedUser.auth_user_id || 'local-user-1',
-      name: savedUser.name || 'Pit Stop Admin',
-      email: savedUser.email || '',
-      role: userRole,
-      collaborator_role: userRole === 'admin' ? 'admin' : undefined,
-    };
-
-    setUser(localUser);
-    setIsEmployee(userRole === 'employee');
-    setHasFullAccess(
-      userRole === 'admin' || userRole === 'owner_admin' || adminAccessGranted
-    );
-    setLoading(false);
-  }, []);
-
-  if (loading) {
+  if (isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -100,16 +61,15 @@ export default function AdminLayout() {
     );
   }
 
-  if (!user) {
+  if (!isAuthenticated || !user) {
     return <Navigate to="/admin-login" replace />;
   }
 
-  if (user?.role === 'user') {
+  if (!isAdmin && !isEmployee) {
     return <Navigate to="/" replace />;
   }
 
-  const navItems =
-    hasFullAccess && !isEmployee ? ownerAdminNavItems : employeeNavItems;
+  const navItems = hasFullAccess ? ownerAdminNavItems : employeeNavItems;
 
   if (isEmployee && location.pathname === '/admin') {
     return <Navigate to="/admin/employee-dashboard" replace />;
@@ -133,13 +93,11 @@ export default function AdminLayout() {
     return <Navigate to="/admin/employee-dashboard" replace />;
   }
 
-  const handleSignOut = () => {
-    localStorage.removeItem('pitstop_demo_user');
-    localStorage.removeItem('pitstop_employee_user');
-    sessionStorage.removeItem('adminAccessGranted');
+  const handleSignOut = async () => {
+    await logout(false);
 
     if (isEmployee) {
-      window.location.href = '/register';
+      window.location.href = '/employee-login';
     } else {
       window.location.href = '/admin-login';
     }
@@ -157,7 +115,7 @@ export default function AdminLayout() {
         </Button>
 
         <span className="font-display font-bold text-sm">
-          {hasFullAccess && !isEmployee ? 'Owner Admin' : 'Employee Dashboard'}
+          {hasFullAccess ? 'Owner Admin' : 'Employee Dashboard'}
         </span>
 
         {!isEmployee && (
@@ -186,9 +144,7 @@ export default function AdminLayout() {
         <div className="p-5 border-b border-border flex items-center justify-between">
           <div>
             <h2 className="font-display font-bold text-lg">
-              {hasFullAccess && !isEmployee
-                ? 'Owner Admin'
-                : 'Employee Dashboard'}
+              {hasFullAccess ? 'Owner Admin' : 'Employee Dashboard'}
             </h2>
             <p className="text-xs text-muted-foreground">{user?.email}</p>
           </div>

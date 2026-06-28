@@ -23,53 +23,36 @@ export default function Login() {
     try {
       const cleanEmail = email.trim().toLowerCase();
 
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+      const { data: authData, error: authError } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
-      if (authError) {
-        throw authError;
+      if (authError || !authData?.user) {
+        setError("Invalid email or password");
+        setLoading(false);
+        return;
       }
 
       const { data: customer, error: customerError } = await supabase
         .from("customers")
         .select("*")
         .eq("restaurant_id", RESTAURANT_ID)
-        .eq("email", cleanEmail)
-        .single();
+        .eq("auth_user_id", authData.user.id)
+        .maybeSingle();
 
       if (customerError || !customer) {
         await supabase.auth.signOut();
         setError("Customer profile not found. Please contact support.");
+        setLoading(false);
         return;
       }
 
-      localStorage.setItem(
-        "pitstop_demo_user",
-        JSON.stringify({
-          id: customer.id,
-          name: customer.name || cleanEmail.split("@")[0],
-          email: customer.email || cleanEmail,
-          phone: customer.phone || "",
-          birthday: customer.birthday || "",
-          address: customer.address || "",
-          role: "user",
-          loggedIn: true,
-          restaurant_id: RESTAURANT_ID,
-          customer_id_code: customer.customer_code,
-          customer_code: customer.customer_code,
-          points_balance: Number(customer.points_balance || 0),
-          total_points_earned: Number(customer.lifetime_points || 0),
-          lifetime_points: Number(customer.lifetime_points || 0),
-        })
-      );
-
       window.location.href = "/";
     } catch (err) {
-      console.error(err);
+      console.error("Customer login failed:", err);
       setError(err.message || "Invalid email or password");
-    } finally {
       setLoading(false);
     }
   };

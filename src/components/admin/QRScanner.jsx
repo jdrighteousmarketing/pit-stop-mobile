@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { X, Camera } from 'lucide-react';
+import { X, Camera, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function QRScanner({ onScan, onClose }) {
   const scannerRef = useRef(null);
   const scannedRef = useRef(false);
+  const startingRef = useRef(false);
   const onScanRef = useRef(onScan);
 
   const scannerId = useMemo(
@@ -20,45 +21,95 @@ export default function QRScanner({ onScan, onClose }) {
     onScanRef.current = onScan;
   }, [onScan]);
 
-  useEffect(() => {
-    let mounted = true;
-    scannedRef.current = false;
+  const stopScanner = async () => {
+    const scanner = scannerRef.current;
 
-    async function stopScanner() {
-      const scanner = scannerRef.current;
+    if (!scanner) return;
 
-      if (!scanner) return;
-
-      try {
-        if (scanner.getState && scanner.getState() === 2) {
-          await scanner.stop();
-        } else {
-          await scanner.stop();
-        }
-      } catch {
-        // Already stopped or not running.
-      }
-
-      try {
-        await scanner.clear();
-      } catch {
-        // Already cleared.
-      }
-
-      scannerRef.current = null;
+    try {
+      await scanner.stop();
+    } catch {
+      // Scanner may already be stopped.
     }
 
-    async function startScanner() {
+    try {
+      await scanner.clear();
+    } catch {
+      // Scanner may already be cleared.
+    }
+
+    scannerRef.current = null;
+    startingRef.current = false;
+  };
+
+  const startScanner = async () => {
+    if (startingRef.current || scannerRef.current) return;
+
+    startingRef.current = true;
+    scannedRef.current = false;
+    setStarting(true);
+    setError('');
+
+    try {
+      const scannerElement = document.getElementById(scannerId);
+
+      if (!scannerElement) {
+        throw new Error('Scanner region not ready.');
+      }
+
+      const scanner = new Html5Qrcode(scannerId, {
+        verbose: false,
+        formatsToSupport: undefined,
+      });
+
+      scannerRef.current = scanner;
+
+      const config = {
+        fps: 8,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+          const boxSize = Math.floor(minEdge * 0.78);
+
+          return {
+            width: boxSize,
+            height: boxSize,
+          };
+        },
+        aspectRatio: 1,
+        disableFlip: false,
+      };
+
+      let started = false;
+
       try {
-        const scannerElement = document.getElementById(scannerId);
+        await scanner.start(
+          { facingMode: { exact: 'environment' } },
+          config,
+          handleDecodedText,
+          () => {}
+        );
 
-        if (!scannerElement) {
-          throw new Error('Scanner region not ready.');
+        started = true;
+      } catch {
+        // Some iPhones do not like exact environment mode.
+      }
+
+      if (!started) {
+        try {
+          await scanner.start(
+            { facingMode: 'environment' },
+            config,
+            handleDecodedText,
+            () => {}
+          );
+
+          started = true;
+        } catch {
+          // Fall back to camera list below.
         }
+      }
 
-        const scanner = new Html5Qrcode(scannerId);
-        scannerRef.current = scanner;
-
+      if (!started) {
         const cameras = await Html5Qrcode.getCameras();
 
         if (!cameras || cameras.length === 0) {
@@ -67,92 +118,95 @@ export default function QRScanner({ onScan, onClose }) {
 
         const backCamera =
           cameras.find((camera) =>
-            camera.label?.toLowerCase().includes('back')
+            String(camera.label || '').toLowerCase().includes('back')
           ) ||
           cameras.find((camera) =>
-            camera.label?.toLowerCase().includes('rear')
+            String(camera.label || '').toLowerCase().includes('rear')
           ) ||
           cameras[cameras.length - 1];
 
         await scanner.start(
-          backCamera?.id ? { deviceId: { exact: backCamera.id } } : { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1,
-          },
-          async (decodedText) => {
-            if (scannedRef.current) return;
-
-            scannedRef.current = true;
-
-            await stopScanner();
-
-            setTimeout(() => {
-              onScanRef.current(decodedText);
-            }, 150);
-          },
-          () => {
-            // Ignore normal scan misses.
-          }
+          { deviceId: { exact: backCamera.id } },
+          config,
+          handleDecodedText,
+          () => {}
         );
-
-        if (mounted) {
-          setStarting(false);
-          setError('');
-        }
-      } catch (err) {
-        console.error('QR scanner start error:', err);
-
-        if (mounted) {
-          setStarting(false);
-          setError(
-            'Camera could not start. Close this window, allow camera permission, and try again.'
-          );
-        }
       }
-    }
 
-    const timer = setTimeout(startScanner, 500);
+      setStarting(false);
+      setError('');
+      startingRef.current = false;
+    } catch (err) {
+      console.error('QR scanner start error:', err);
+
+      await stopScanner();
+
+      setStarting(false);
+      setError(
+        'Camera could not start. Make sure camera permission is allowed, then close and reopen the scanner.'
+      );
+    }
+  };
+
+  const handleDecodedText = async (decodedText) => {
+    const cleanedText = String(decodedText || '').trim();
+
+    if (!cleanedText || scannedRef.current) return;
+
+    scannedRef.current = true;
+
+    await stopScanner();
+
+    setTimeout(() => {
+      onScanRef.current(cleanedText);
+    }, 100);
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      startScanner();
+    }, 250);
 
     return () => {
-      mounted = false;
       clearTimeout(timer);
       stopScanner();
     };
   }, [scannerId]);
 
   const handleClose = async () => {
-    const scanner = scannerRef.current;
-
-    if (scanner) {
-      try {
-        await scanner.stop();
-      } catch {
-        // Already stopped.
-      }
-
-      try {
-        await scanner.clear();
-      } catch {
-        // Already cleared.
-      }
-
-      scannerRef.current = null;
-    }
-
+    await stopScanner();
     scannedRef.current = false;
     onClose();
   };
 
+  const handleRestart = async () => {
+    await stopScanner();
+    scannedRef.current = false;
+
+    setTimeout(() => {
+      startScanner();
+    }, 250);
+  };
+
   return (
     <div className="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-center px-4">
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-white hover:bg-white/20"
+          onClick={handleRestart}
+          type="button"
+        >
+          <RotateCcw className="w-5 h-5" />
+        </Button>
+
         <Button
           variant="ghost"
           size="icon"
           className="text-white hover:bg-white/20"
           onClick={handleClose}
+          type="button"
         >
           <X className="w-6 h-6" />
         </Button>
@@ -168,7 +222,7 @@ export default function QRScanner({ onScan, onClose }) {
         </p>
 
         <p className="text-white/60 text-sm mt-1">
-          Point camera at the customer&apos;s rewards checkout QR code.
+          Point the camera at a customer rewards QR or checkout QR.
         </p>
       </div>
 
@@ -195,11 +249,24 @@ export default function QRScanner({ onScan, onClose }) {
         )}
 
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black text-white p-5 text-center text-sm">
-            {error}
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-white p-5 text-center text-sm gap-4">
+            <p>{error}</p>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="bg-white text-black hover:bg-white/90"
+              onClick={handleRestart}
+            >
+              Try Again
+            </Button>
           </div>
         )}
       </div>
+
+      <p className="text-white/50 text-xs text-center mt-4 max-w-xs">
+        On iPhone, use Safari or Chrome with camera permission enabled.
+      </p>
     </div>
   );
 }

@@ -11,33 +11,14 @@ import PullToRefresh from '@/components/customer/PullToRefresh';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
-function readJSON(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
-  } catch {
-    return fallback;
-  }
+function getPointsBalance(customer) {
+  return Number(customer?.points_balance ?? 0);
 }
 
-function getDemoUser() {
-  return readJSON('pitstop_demo_user', {});
-}
-
-function getPointsBalance(customer, savedUser) {
-  return Number(
-    customer?.points_balance ??
-      savedUser?.points_balance ??
-      savedUser?.points ??
-      0
-  );
-}
-
-function getLifetimePoints(customer, savedUser) {
+function getLifetimePoints(customer) {
   return Number(
     customer?.lifetime_points ??
       customer?.total_points_earned ??
-      savedUser?.lifetime_points ??
-      savedUser?.total_points_earned ??
       0
   );
 }
@@ -93,12 +74,14 @@ export default function Rewards() {
   const [redeemingId, setRedeemingId] = useState(null);
 
   const [profile, setProfile] = useState({
-    id: 'demo-profile-1',
+    id: '',
+    auth_user_id: '',
     name: 'Customer',
-    email: 'customer@pitstop.com',
+    email: '',
     points_balance: 0,
     lifetime_points: 0,
-    customer_id_code: 'PIT-12345',
+    customer_id_code: '',
+    customer_code: '',
     birthday: null,
     birthday_reward_redeemed_at: null,
   });
@@ -106,55 +89,62 @@ export default function Rewards() {
   const loadRewardsData = async () => {
     setLoading(true);
 
-    const savedUser = getDemoUser();
-
-    const customerCode =
-      savedUser.customer_code ||
-      savedUser.customer_id_code ||
-      'PIT-12345';
-
-    let customerProfile = null;
+    let activeProfile = null;
 
     try {
-      const { data: customerData, error: customerError } = await supabase
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user?.id) {
+        throw new Error('You must be logged in to view rewards.');
+      }
+
+      const { data: customerProfile, error: customerError } = await supabase
         .from('customers')
         .select('*')
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', customerCode)
+        .eq('auth_user_id', user.id)
         .maybeSingle();
 
       if (customerError) throw customerError;
 
-      customerProfile = customerData || null;
+      if (!customerProfile) {
+        throw new Error('Customer profile not found.');
+      }
+
+      activeProfile = {
+        id: customerProfile.id,
+        auth_user_id: customerProfile.auth_user_id || user.id,
+        name:
+          customerProfile.name ||
+          customerProfile.full_name ||
+          user.email?.split('@')[0] ||
+          'Customer',
+        email: customerProfile.email || user.email || '',
+        points_balance: getPointsBalance(customerProfile),
+        lifetime_points: getLifetimePoints(customerProfile),
+        customer_id_code:
+          customerProfile.customer_code ||
+          customerProfile.customer_id_code ||
+          '',
+        customer_code:
+          customerProfile.customer_code ||
+          customerProfile.customer_id_code ||
+          '',
+        birthday: customerProfile.birthday || null,
+        birthday_reward_redeemed_at:
+          customerProfile.birthday_reward_redeemed_at || null,
+      };
+
+      setProfile(activeProfile);
     } catch (error) {
       console.error('Could not load customer:', error);
+      toast.error(error.message || 'Could not load customer profile.');
+      setLoading(false);
+      return;
     }
-
-    const activeProfile = {
-      id: customerProfile?.id || savedUser.id || 'demo-profile-1',
-      name:
-        customerProfile?.name ||
-        customerProfile?.full_name ||
-        savedUser.name ||
-        savedUser.email?.split('@')[0] ||
-        'Customer',
-      email:
-        customerProfile?.email ||
-        savedUser.email ||
-        'customer@pitstop.com',
-      points_balance: getPointsBalance(customerProfile, savedUser),
-      lifetime_points: getLifetimePoints(customerProfile, savedUser),
-      customer_id_code:
-        customerProfile?.customer_code ||
-        savedUser.customer_code ||
-        savedUser.customer_id_code ||
-        'PIT-12345',
-      birthday: customerProfile?.birthday || savedUser.birthday || null,
-      birthday_reward_redeemed_at:
-        customerProfile?.birthday_reward_redeemed_at || null,
-    };
-
-    setProfile(activeProfile);
 
     try {
       const { data: rewardsData, error: rewardsError } = await supabase
@@ -252,7 +242,7 @@ export default function Rewards() {
           points_balance: newBalance,
         })
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', profile.customer_id_code);
+        .eq('auth_user_id', profile.auth_user_id);
 
       if (updateError) throw updateError;
 
@@ -293,19 +283,6 @@ export default function Rewards() {
         ...prev,
         points_balance: newBalance,
       }));
-
-      const savedUser = getDemoUser();
-      const savedCode = savedUser.customer_code || savedUser.customer_id_code;
-
-      if (savedCode === profile.customer_id_code) {
-        localStorage.setItem(
-          'pitstop_demo_user',
-          JSON.stringify({
-            ...savedUser,
-            points_balance: newBalance,
-          })
-        );
-      }
 
       window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
 

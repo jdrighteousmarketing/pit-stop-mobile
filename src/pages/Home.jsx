@@ -5,7 +5,6 @@ import { Link } from 'react-router-dom';
 import { Gift, ChevronRight, Flame } from 'lucide-react';
 import { motion } from 'framer-motion';
 import PullToRefresh from '@/components/customer/PullToRefresh';
-import { useCustomerProfile } from '@/hooks/useCustomerProfile';
 import AddToCartButton from '@/components/customer/AddToCartButton';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -42,24 +41,76 @@ const formatTime = (time) => {
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
 };
 
-function readJSON(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
-  } catch {
-    return fallback;
-  }
-}
-
 export default function Home() {
-  const { data: customerProfile } = useCustomerProfile();
-
-  const [savedUser, setSavedUser] = useState(() =>
-    readJSON('pitstop_demo_user', {})
-  );
+  const [profile, setProfile] = useState({
+    name: 'Customer',
+    email: '',
+    points_balance: 0,
+    customer_id_code: '',
+  });
 
   const [featuredItems, setFeaturedItems] = useState([]);
   const [settings, setSettings] = useState(null);
   const [loadingHome, setLoadingHome] = useState(true);
+
+  const loadCustomerProfile = async () => {
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user?.id) {
+        setProfile({
+          name: 'Customer',
+          email: '',
+          points_balance: 0,
+          customer_id_code: '',
+        });
+        return;
+      }
+
+      const { data: customerData, error: customerError } = await supabase
+        .from('customers')
+        .select('name, email, points_balance, customer_code, customer_id_code')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('auth_user_id', user.id)
+        .maybeSingle();
+
+      if (customerError) throw customerError;
+
+      if (!customerData) {
+        setProfile({
+          name: user.email?.split('@')[0] || 'Customer',
+          email: user.email || '',
+          points_balance: 0,
+          customer_id_code: '',
+        });
+        return;
+      }
+
+      setProfile({
+        name:
+          customerData.name ||
+          user.email?.split('@')[0] ||
+          'Customer',
+        email: customerData.email || user.email || '',
+        points_balance: Number(customerData.points_balance || 0),
+        customer_id_code:
+          customerData.customer_code ||
+          customerData.customer_id_code ||
+          '',
+      });
+    } catch (error) {
+      console.error('Could not load customer profile:', error);
+      setProfile({
+        name: 'Customer',
+        email: '',
+        points_balance: 0,
+        customer_id_code: '',
+      });
+    }
+  };
 
   const loadHomeData = async () => {
     setLoadingHome(true);
@@ -114,42 +165,24 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const syncUser = () => {
-      setSavedUser(readJSON('pitstop_demo_user', {}));
+    const handleUpdate = () => {
+      loadCustomerProfile();
     };
 
-    window.addEventListener('storage', syncUser);
-    window.addEventListener('pitstop-user-updated', syncUser);
-    window.addEventListener('focus', syncUser);
-
+    loadCustomerProfile();
     loadHomeData();
 
+    window.addEventListener('focus', handleUpdate);
+    window.addEventListener('pitstop_checkout_rewards_updated', handleUpdate);
+
     return () => {
-      window.removeEventListener('storage', syncUser);
-      window.removeEventListener('pitstop-user-updated', syncUser);
-      window.removeEventListener('focus', syncUser);
+      window.removeEventListener('focus', handleUpdate);
+      window.removeEventListener('pitstop_checkout_rewards_updated', handleUpdate);
     };
   }, []);
 
-  const profile = {
-    name:
-      savedUser.name ||
-      customerProfile?.name ||
-      savedUser.email?.split('@')[0] ||
-      'Customer',
-    email: savedUser.email || customerProfile?.email || 'customer@pitstop.com',
-    points_balance: Number(
-      savedUser.points_balance ?? customerProfile?.points_balance ?? 0
-    ),
-    customer_id_code:
-      savedUser.customer_id_code ||
-      customerProfile?.customer_id_code ||
-      'PIT-12345',
-  };
-
   const handleRefresh = async () => {
-    setSavedUser(readJSON('pitstop_demo_user', {}));
-    await loadHomeData();
+    await Promise.all([loadCustomerProfile(), loadHomeData()]);
     return true;
   };
 
