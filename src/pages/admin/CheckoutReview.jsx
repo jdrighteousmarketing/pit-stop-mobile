@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { calculateCheckoutTotals } from "@/components/businessInsights/utils/checkoutPricing";
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
@@ -118,6 +119,26 @@ export default function CheckoutReview() {
       checkoutData.claimed_rewards
   );
 
+  const checkoutTotals = calculateCheckoutTotals({
+    items,
+    coupon: claimedCoupon,
+    taxRate: 6,
+    pointsPerDollar: rewardSettings.pointsPerDollar,
+    rewardRounding: rewardSettings.rewardRounding || 'down',
+  });
+
+  const checkoutSubtotal = Number(checkoutData.subtotal ?? checkoutTotals.subtotal ?? 0);
+  const checkoutDiscountAmount = Number(
+    checkoutData.discountAmount ??
+      checkoutData.discount_amount ??
+      claimedCoupon?.discountAmount ??
+      claimedCoupon?.discount_amount ??
+      checkoutTotals.discountAmount ??
+      0
+  );
+  const checkoutTaxAmount = Number(checkoutData.taxAmount ?? checkoutData.tax_amount ?? checkoutTotals.taxAmount ?? 0);
+  const checkoutTotal = Number(checkoutData.total ?? checkoutData.total_amount ?? checkoutTotals.total ?? 0);
+
   useEffect(() => {
     const loadRewardSettings = async () => {
       try {
@@ -145,7 +166,7 @@ export default function CheckoutReview() {
     loadRewardSettings();
   }, []);
 
-  const orderTotal = Number(checkoutData.total || 0);
+  const orderTotal = checkoutTotal;
   const settingsReady = rewardSettings.rewardRounding !== null;
 
 const previewPointsToAward = settingsReady
@@ -209,6 +230,55 @@ const previewPointsToAward = settingsReady
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
       const completedAt = new Date().toISOString();
+      const activeCheckoutCode =
+        checkoutData.checkoutCode || checkoutData.checkout_code || null;
+
+      const completeCustomerCheckoutSession = async () => {
+        const sessionUpdate = {
+          status: 'completed',
+          completed_at: completedAt,
+          order_number: orderNumber,
+          points_awarded: actualPointsAwarded,
+        };
+
+        if (activeCheckoutCode) {
+          const { data: updatedSessions, error: checkoutSessionError } =
+            await supabase
+              .from('checkout_sessions')
+              .update(sessionUpdate)
+              .eq('restaurant_id', RESTAURANT_ID)
+              .eq('checkout_code', activeCheckoutCode)
+              .select('id');
+
+          if (checkoutSessionError) throw checkoutSessionError;
+          if (Array.isArray(updatedSessions) && updatedSessions.length > 0) return;
+        }
+
+        // Fallback for edge cases where the scanner/checkout data is missing
+        // the exact checkout code. Complete the newest pending session for this
+        // customer so the customer's phone receives the completion event.
+        const { data: latestSessions, error: latestSessionError } = await supabase
+          .from('checkout_sessions')
+          .select('id')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('customer_code', customerCode)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (latestSessionError) throw latestSessionError;
+
+        const latestSession = Array.isArray(latestSessions) ? latestSessions[0] : null;
+        if (!latestSession?.id) return;
+
+        const { error: fallbackCheckoutSessionError } = await supabase
+          .from('checkout_sessions')
+          .update(sessionUpdate)
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('id', latestSession.id);
+
+        if (fallbackCheckoutSessionError) throw fallbackCheckoutSessionError;
+      };
 
       const { error: customerUpdateError } = await supabase
         .from('customers')
@@ -228,8 +298,8 @@ const previewPointsToAward = settingsReady
           restaurant_id: RESTAURANT_ID,
           customer_code: customerCode,
           order_number: orderNumber,
-          subtotal: Number(checkoutData.subtotal || 0),
-          tax_amount: Number(checkoutData.taxAmount || 0),
+          subtotal: Number(checkoutSubtotal || 0),
+          tax_amount: Number(checkoutTaxAmount || 0),
           total_amount: orderTotal,
           points_awarded: actualPointsAwarded,
           payment_method: 'outside_app',
@@ -291,6 +361,11 @@ const previewPointsToAward = settingsReady
 
         if (pointsError) throw pointsError;
       }
+
+      // Complete the checkout session before coupon/reward cleanup so the
+      // customer's phone always receives the success event, including
+      // reward-only and birthday reward checkouts.
+      await completeCustomerCheckoutSession();
 
       const checkoutDealId =
         claimedCoupon?.checkoutDealId ||
@@ -381,7 +456,9 @@ const previewPointsToAward = settingsReady
               .from('birthday_reward_redemptions')
               .insert(birthdayRedemptionRows);
 
-            if (birthdayRedemptionError) throw birthdayRedemptionError;
+            if (birthdayRedemptionError) {
+              console.warn('Birthday redemption history could not be saved:', birthdayRedemptionError);
+            }
           }
         }
       }
@@ -438,24 +515,14 @@ const previewPointsToAward = settingsReady
             .from('birthday_reward_redemptions')
             .insert(birthdayRedemptionRows);
 
-          if (birthdayRedemptionError) throw birthdayRedemptionError;
+          if (birthdayRedemptionError) {
+            console.warn('Birthday redemption history could not be saved:', birthdayRedemptionError);
+          }
         }
       }
 
-      if (checkoutData.checkoutCode || checkoutData.checkout_code) {
-        const { error: checkoutSessionError } = await supabase
-          .from('checkout_sessions')
-          .update({
-            status: 'completed',
-            completed_at: completedAt,
-            order_number: orderNumber,
-            points_awarded: actualPointsAwarded,
-          })
-          .eq('restaurant_id', RESTAURANT_ID)
-          .eq('checkout_code', checkoutData.checkoutCode || checkoutData.checkout_code);
-
-        if (checkoutSessionError) throw checkoutSessionError;
-      }
+      // Checkout session was completed earlier so the customer success
+      // overlay is triggered even if reward cleanup takes a moment.
 
       const savedUser = safeJsonParse(localStorage.getItem('pitstop_demo_user'), {});
       const savedCode = savedUser.customer_id_code || savedUser.customer_code;
@@ -583,17 +650,24 @@ const previewPointsToAward = settingsReady
         <div className="border-t border-border pt-3 space-y-1">
           <div className="flex justify-between">
             <span>Subtotal</span>
-            <span>${money(checkoutData.subtotal)}</span>
+            <span>${money(checkoutSubtotal)}</span>
           </div>
+
+          {checkoutDiscountAmount > 0 && (
+            <div className="flex justify-between text-emerald-500 font-semibold">
+              <span>Coupon Discount</span>
+              <span>-${money(checkoutDiscountAmount)}</span>
+            </div>
+          )}
 
           <div className="flex justify-between">
             <span>Tax</span>
-            <span>${money(checkoutData.taxAmount)}</span>
+            <span>${money(checkoutTaxAmount)}</span>
           </div>
 
           <div className="flex justify-between font-bold text-lg">
             <span>Total</span>
-            <span>${money(checkoutData.total)}</span>
+            <span>${money(orderTotal)}</span>
           </div>
 
           <div className="flex justify-between text-primary font-bold">

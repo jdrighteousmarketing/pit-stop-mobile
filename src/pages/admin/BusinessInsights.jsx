@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { useMemo, useState } from 'react';
 import CustomerAnalyticsCard from '@/components/businessInsights/cards/CustomerAnalyticsCard';
 import MenuPerformanceCard from '@/components/businessInsights/cards/MenuPerformanceCard';
 import RewardsAnalyticsCard from '@/components/businessInsights/cards/RewardsAnalyticsCard';
@@ -14,8 +15,6 @@ import {
   BarChart,
   Cell,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -27,6 +26,7 @@ import {
   BarChart3,
   LineChart as LineChartIcon,
   Repeat2,
+  CalendarDays,
   TrendingUp,
 } from 'lucide-react';
 
@@ -44,12 +44,13 @@ import {
   endOfMonth,
   endOfWeek,
   endOfYear,
+  isSameMonth,
   format,
   startOfDay,
   startOfMonth,
   startOfWeek,
   startOfYear,
-  subDays,
+  subMonths,
 } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -176,6 +177,78 @@ function buildBusyDays(orders) {
   return weekdayOrder.map((day) => ({ label: day, orders: totals[day] || 0 }));
 }
 
+
+function getMonthKey(date) {
+  return format(date, 'yyyy-MM');
+}
+
+const ANALYTICS_START_YEAR = 2026;
+
+function getAnalyticsPeriodOptions(now) {
+  const currentMonthStart = startOfMonth(now);
+  const currentYear = now.getFullYear();
+  const options = [];
+
+  for (let year = currentYear; year >= ANALYTICS_START_YEAR; year -= 1) {
+    const isCurrentYear = year === currentYear;
+    const latestMonthIndex = isCurrentYear ? currentMonthStart.getMonth() : 11;
+
+    for (let monthIndex = latestMonthIndex; monthIndex >= 0; monthIndex -= 1) {
+      const monthDate = new Date(year, monthIndex, 1);
+      const isCurrentMonth = isSameMonth(monthDate, now);
+
+      options.push({
+        value: getMonthKey(monthDate),
+        label: isCurrentMonth
+          ? `Current Month - ${format(monthDate, 'MMMM yyyy')}`
+          : format(monthDate, 'MMMM yyyy'),
+      });
+    }
+
+    options.push({
+      value: `year-total-${year}`,
+      label: `${year} Year Total`,
+    });
+  }
+
+  return options;
+}
+
+function getAnalyticsPeriod(value, now) {
+  if (value.startsWith('year-total')) {
+    const selectedYear = Number(value.replace('year-total-', '')) || now.getFullYear();
+    const selectedYearDate = new Date(selectedYear, 0, 1);
+
+    return {
+      value,
+      label: `${selectedYear} Year Total`,
+      shortLabel: `${selectedYear} Year Total`,
+      rangeStart: startOfYear(selectedYearDate),
+      rangeEnd: selectedYear === now.getFullYear() ? endOfDay(now) : endOfYear(selectedYearDate),
+      isYearTotal: true,
+      isCurrentMonth: false,
+      isCurrentYear: selectedYear === now.getFullYear(),
+    };
+  }
+
+  const [year, month] = value.split('-').map(Number);
+  const selectedMonth = new Date(year, month - 1, 1);
+  const isCurrentMonth = isSameMonth(selectedMonth, now);
+
+  return {
+    value,
+    label: isCurrentMonth
+      ? `Current Month - ${format(selectedMonth, 'MMMM yyyy')}`
+      : format(selectedMonth, 'MMMM yyyy'),
+    shortLabel: isCurrentMonth ? 'Current Month' : format(selectedMonth, 'MMMM yyyy'),
+    rangeStart: startOfMonth(selectedMonth),
+    rangeEnd: isCurrentMonth ? endOfDay(now) : endOfMonth(selectedMonth),
+    isYearTotal: false,
+    isCurrentMonth,
+    isCurrentYear: year === now.getFullYear(),
+  };
+}
+
 function buildMenuPerformance(orderItems = []) {
   const itemTotals = {};
   const categoryTotals = {};
@@ -246,15 +319,24 @@ function buildMenuPerformance(orderItems = []) {
 
 export default function BusinessInsights() {
   const now = new Date();
+  const periodOptions = useMemo(() => getAnalyticsPeriodOptions(now), []);
+  const [selectedPeriod, setSelectedPeriod] = useState(() => getMonthKey(now));
+  const analyticsPeriod = useMemo(
+    () => getAnalyticsPeriod(selectedPeriod, now),
+    [selectedPeriod]
+  );
+
   const todayStart = startOfDay(now).toISOString();
   const todayEnd = endOfDay(now).toISOString();
   const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString();
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 }).toISOString();
-  const monthStart = startOfMonth(now).toISOString();
-  const monthEnd = endOfMonth(now).toISOString();
-  const yearStart = startOfYear(now).toISOString();
-  const yearEnd = endOfYear(now).toISOString();
-  const chartStartDate = subDays(now, 29);
+  const selectedYearDate = analyticsPeriod.rangeStart;
+  const yearStart = startOfYear(selectedYearDate).toISOString();
+  const yearEnd = endOfYear(selectedYearDate).toISOString();
+  const rangeStart = analyticsPeriod.rangeStart.toISOString();
+  const rangeEnd = analyticsPeriod.rangeEnd.toISOString();
+  const chartStartDate = analyticsPeriod.rangeStart;
+  const chartEndDate = analyticsPeriod.rangeEnd;
 
   const { data = {}, isLoading } = useQuery({
     queryKey: [
@@ -262,8 +344,11 @@ export default function BusinessInsights() {
       RESTAURANT_ID,
       todayStart,
       weekStart,
-      monthStart,
+      selectedPeriod,
+      rangeStart,
+      rangeEnd,
       yearStart,
+      yearEnd,
     ],
     queryFn: async () => {
       const [
@@ -296,23 +381,23 @@ export default function BusinessInsights() {
             'id, customer_code, name, email, points_balance, lifetime_spend, visit_count, birthday_reward_redeemed_at, created_at'
           )
           .eq('restaurant_id', RESTAURANT_ID)
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd),
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd),
 
         supabase
           .from('points_transactions')
           .select('id, transaction_type, points_amount, note, created_at')
           .eq('restaurant_id', RESTAURANT_ID)
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd),
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd),
 
         supabase
           .from('customer_checkout_rewards')
           .select('id, reward_name, points_required, status, redeemed_at, created_at')
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('status', 'redeemed')
-          .gte('redeemed_at', monthStart)
-          .lte('redeemed_at', monthEnd),
+          .gte('redeemed_at', rangeStart)
+          .lte('redeemed_at', rangeEnd),
 
         supabase
           .from('customers')
@@ -325,8 +410,8 @@ export default function BusinessInsights() {
           .from('order_items')
           .select('id, item_name, category_name, quantity, unit_price, total_price, created_at')
           .eq('restaurant_id', RESTAURANT_ID)
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd),
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd),
       ]);
 
       if (yearOrdersResult.error) console.error('Year orders error:', yearOrdersResult.error);
@@ -344,6 +429,11 @@ export default function BusinessInsights() {
       const monthCheckoutRewards = monthCheckoutRewardsResult.data || [];
       const topCustomers = topCustomersResult.data || [];
       const monthOrderItems = monthOrderItemsResult.data || [];
+      const customerLookup = new Map(
+        allCustomers
+          .filter((customer) => customer.customer_code)
+          .map((customer) => [customer.customer_code, customer])
+      );
 
       const todayOrders = yearOrders.filter((order) =>
         isInRange(order.created_at, todayStart, todayEnd)
@@ -354,7 +444,7 @@ export default function BusinessInsights() {
       );
 
       const monthOrders = yearOrders.filter((order) =>
-        isInRange(order.created_at, monthStart, monthEnd)
+        isInRange(order.created_at, rangeStart, rangeEnd)
       );
 
       const todaySales = todayOrders.reduce(
@@ -387,8 +477,35 @@ export default function BusinessInsights() {
           .filter(Boolean)
       );
 
+      const topCustomersForRange = Object.values(
+        monthOrders.reduce((acc, order) => {
+          const customerCode = order.customer_code;
+          if (!customerCode) return acc;
+
+          const customer = customerLookup.get(customerCode);
+
+          if (!acc[customerCode]) {
+            acc[customerCode] = {
+              id: customer?.id || customerCode,
+              customer_code: customerCode,
+              name: customer?.name || 'Unknown Customer',
+              email: customer?.email || '',
+              lifetime_spend: 0,
+              visit_count: 0,
+            };
+          }
+
+          acc[customerCode].lifetime_spend += getOrderTotal(order);
+          acc[customerCode].visit_count += 1;
+
+          return acc;
+        }, {})
+      )
+        .sort((a, b) => Number(b.lifetime_spend || 0) - Number(a.lifetime_spend || 0))
+        .slice(0, 5);
+
       const birthdayRewardsRedeemedThisMonth = allCustomers.filter((customer) =>
-        isInRange(customer.birthday_reward_redeemed_at, monthStart, monthEnd)
+        isInRange(customer.birthday_reward_redeemed_at, rangeStart, rangeEnd)
       ).length;
 
       const pointsIssuedThisMonth = monthTransactions
@@ -416,8 +533,7 @@ export default function BusinessInsights() {
             ) / allCustomers.length
           : 0;
 
-      const chartEndDate = now;
-      const dailySalesTrend = buildDailySalesTrend(yearOrders, chartStartDate, chartEndDate);
+      const dailySalesTrend = buildDailySalesTrend(monthOrders, chartStartDate, chartEndDate);
       const customerGrowthTrend = buildCustomerGrowth(allCustomers, chartStartDate, chartEndDate);
       const busyDays = buildBusyDays(monthOrders);
       const menuPerformance = buildMenuPerformance(monthOrderItems);
@@ -433,11 +549,18 @@ export default function BusinessInsights() {
       ];
 
       return {
+        isCurrentMonth: Boolean(analyticsPeriod.isCurrentMonth),
+        isYearTotal: Boolean(analyticsPeriod.isYearTotal),
+        rangeLabel: analyticsPeriod.shortLabel,
+        rangeSales: monthSales,
+        rangeOrderCount: monthOrderCount,
+        yearOrderCount: yearOrders.length,
         todaySales,
         weekSales,
         monthSales,
         yearSales,
         todayOrderCount: todayOrders.length,
+        weekOrderCount: weekOrders.length,
         monthOrderCount,
         averageTicket,
         newMembersThisMonth: monthCustomers.length,
@@ -449,7 +572,7 @@ export default function BusinessInsights() {
         pointsRedeemedThisMonth,
         outstandingPoints,
         totalCustomers: allCustomers.length,
-        topCustomers,
+        topCustomers: topCustomersForRange.length > 0 ? topCustomersForRange : topCustomers,
         dailySalesTrend,
         customerGrowthTrend,
         rewardsUsage,
@@ -504,12 +627,31 @@ export default function BusinessInsights() {
         </p>
 
         <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/10 p-3">
-          <p className="text-xs font-semibold text-primary">
-            Viewing: {format(new Date(), 'MMMM yyyy')}
-          </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Sales use completed orders only. Menu performance uses completed checkout items for this restaurant.
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold text-primary">
+                Viewing: {analyticsPeriod.label}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Sales use completed orders only. Menu performance uses completed checkout items for this restaurant.
+              </p>
+            </div>
+
+            <label className="flex items-center gap-2 rounded-xl border border-primary/30 bg-background/80 px-3 py-2 text-xs font-semibold text-foreground shadow-sm">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              <select
+                value={selectedPeriod}
+                onChange={(event) => setSelectedPeriod(event.target.value)}
+                className="bg-transparent text-xs font-semibold outline-none"
+              >
+                {periodOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -523,7 +665,7 @@ export default function BusinessInsights() {
           <ChartCard
             icon={LineChartIcon}
             title="Sales Trend"
-            subtitle="Daily revenue from the last 30 days."
+            subtitle={`Daily revenue for ${analyticsPeriod.shortLabel}.`}
           >
             {isLoading ? (
               <EmptyChartState message="Loading sales chart..." />
@@ -556,7 +698,7 @@ export default function BusinessInsights() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <EmptyChartState message="No completed sales in the last 30 days yet." />
+              <EmptyChartState message={`No completed sales for ${analyticsPeriod.shortLabel} yet.`} />
             )}
           </ChartCard>
         </div>
@@ -564,7 +706,7 @@ export default function BusinessInsights() {
         <ChartCard
           icon={BarChart3}
           title="Busy Days"
-          subtitle="Completed orders by weekday this month."
+          subtitle={`Completed orders by weekday for ${analyticsPeriod.shortLabel}.`}
         >
           {isLoading ? (
             <EmptyChartState message="Loading busy days..." />
@@ -585,14 +727,14 @@ export default function BusinessInsights() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyChartState message="No completed orders this month yet." />
+            <EmptyChartState message={`No completed orders for ${analyticsPeriod.shortLabel} yet.`} />
           )}
         </ChartCard>
 
         <ChartCard
           icon={Activity}
           title="Revenue vs Rewards"
-          subtitle="Monthly revenue compared with redeemed points."
+          subtitle={`Revenue compared with redeemed points for ${analyticsPeriod.shortLabel}.`}
         >
           {isLoading ? (
             <EmptyChartState message="Loading comparison..." />
@@ -613,7 +755,7 @@ export default function BusinessInsights() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyChartState message="No revenue or reward data this month yet." />
+            <EmptyChartState message={`No revenue or reward data for ${analyticsPeriod.shortLabel} yet.`} />
           )}
         </ChartCard>
       </Section>
@@ -627,13 +769,13 @@ export default function BusinessInsights() {
 
       <Section
         title="Rewards Charts"
-        subtitle="Points issued, points redeemed, and rewards redeemed this month."
+        subtitle={`Points issued, points redeemed, and rewards redeemed for ${analyticsPeriod.shortLabel}.`}
       >
         <div className="col-span-2">
           <ChartCard
             icon={Repeat2}
             title="Rewards Usage"
-            subtitle="Monthly rewards movement."
+            subtitle={`Rewards movement for ${analyticsPeriod.shortLabel}.`}
           >
             {isLoading ? (
               <EmptyChartState message="Loading rewards chart..." />
@@ -660,7 +802,7 @@ export default function BusinessInsights() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <EmptyChartState message="No rewards activity this month yet." />
+              <EmptyChartState message={`No rewards activity for ${analyticsPeriod.shortLabel} yet.`} />
             )}
           </ChartCard>
         </div>
@@ -670,13 +812,13 @@ export default function BusinessInsights() {
 
       <Section
         title="Customer Charts"
-        subtitle="Customer growth over the last 30 days."
+        subtitle={`Customer growth for ${analyticsPeriod.shortLabel}.`}
       >
         <div className="col-span-2">
           <ChartCard
             icon={TrendingUp}
             title="Customer Growth"
-            subtitle="Total customers over the last 30 days."
+            subtitle={`Total customers through ${analyticsPeriod.shortLabel}.`}
           >
             {isLoading ? (
               <EmptyChartState message="Loading customer growth..." />

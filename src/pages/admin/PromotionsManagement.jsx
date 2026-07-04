@@ -28,6 +28,12 @@ import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
+const APPLY_TO = {
+  ENTIRE_ORDER: 'entire_order',
+  MENU_ITEM: 'menu_item',
+  CATEGORY: 'category',
+};
+
 const emptyForm = {
   title: '',
   description: '',
@@ -38,6 +44,9 @@ const emptyForm = {
   end_date: '',
   is_active: true,
   promotion_type: 'promotion',
+  apply_to: APPLY_TO.ENTIRE_ORDER,
+  target_menu_item_id: '',
+  target_category_id: '',
 };
 
 function toDateInput(value) {
@@ -48,6 +57,12 @@ function toDateInput(value) {
 function normalizeDiscountType(type) {
   if (!type || type === 'points') return 'percentage';
   return type;
+}
+
+function getApplyToFromPromo(promo) {
+  if (promo?.target_menu_item_id) return APPLY_TO.MENU_ITEM;
+  if (promo?.target_category_id) return APPLY_TO.CATEGORY;
+  return APPLY_TO.ENTIRE_ORDER;
 }
 
 export default function PromotionsManagement() {
@@ -72,6 +87,36 @@ export default function PromotionsManagement() {
     initialData: [],
   });
 
+  const { data: menuItems = [] } = useQuery({
+    queryKey: ['promotionMenuItems', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('id, name, category_id, is_available, sort_order')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    initialData: [],
+  });
+
+  const { data: menuCategories = [] } = useQuery({
+    queryKey: ['promotionMenuCategories', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('menu_categories')
+        .select('id, name, sort_order, is_active')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    initialData: [],
+  });
+
   const createPromo = useMutation({
     mutationFn: async (data) => {
       const { error } = await supabase.from('promotions').insert([data]);
@@ -85,7 +130,7 @@ export default function PromotionsManagement() {
     },
     onError: (error) => {
       console.error(error);
-      toast.error('Could not create promotion.');
+      toast.error(error.message || 'Could not create promotion.');
     },
   });
 
@@ -107,7 +152,7 @@ export default function PromotionsManagement() {
     },
     onError: (error) => {
       console.error(error);
-      toast.error('Could not update promotion.');
+      toast.error(error.message || 'Could not update promotion.');
     },
   });
 
@@ -128,7 +173,7 @@ export default function PromotionsManagement() {
     },
     onError: (error) => {
       console.error(error);
-      toast.error('Could not delete promotion.');
+      toast.error(error.message || 'Could not delete promotion.');
     },
   });
 
@@ -150,11 +195,23 @@ export default function PromotionsManagement() {
             end_date: toDateInput(promo.end_date),
             is_active: promo.is_active ?? true,
             promotion_type: promo.promotion_type || 'promotion',
+            apply_to: getApplyToFromPromo(promo),
+            target_menu_item_id: promo.target_menu_item_id || '',
+            target_category_id: promo.target_category_id || '',
           }
-        : emptyForm
+        : { ...emptyForm }
     );
 
     setDialog(true);
+  };
+
+  const handleApplyToChange = (value) => {
+    setForm({
+      ...form,
+      apply_to: value,
+      target_menu_item_id: value === APPLY_TO.MENU_ITEM ? form.target_menu_item_id : '',
+      target_category_id: value === APPLY_TO.CATEGORY ? form.target_category_id : '',
+    });
   };
 
   const handleSave = () => {
@@ -162,6 +219,20 @@ export default function PromotionsManagement() {
       form.discount_value === '' || form.discount_value === null
         ? null
         : Number(form.discount_value);
+
+    const applyTo = form.apply_to || APPLY_TO.ENTIRE_ORDER;
+    const targetMenuItemId = applyTo === APPLY_TO.MENU_ITEM ? form.target_menu_item_id || null : null;
+    const targetCategoryId = applyTo === APPLY_TO.CATEGORY ? form.target_category_id || null : null;
+
+    if (applyTo === APPLY_TO.MENU_ITEM && !targetMenuItemId) {
+      toast.error('Choose the menu item this promotion applies to.');
+      return;
+    }
+
+    if (applyTo === APPLY_TO.CATEGORY && !targetCategoryId) {
+      toast.error('Choose the menu category this promotion applies to.');
+      return;
+    }
 
     const data = {
       restaurant_id: RESTAURANT_ID,
@@ -174,6 +245,8 @@ export default function PromotionsManagement() {
       end_date: form.end_date || null,
       is_active: form.is_active ?? true,
       promotion_type: form.promotion_type || 'promotion',
+      target_menu_item_id: targetMenuItemId,
+      target_category_id: targetCategoryId,
       image_url: null,
     };
 
@@ -193,6 +266,20 @@ export default function PromotionsManagement() {
     promotion: 'Promotion',
     coupon: 'Coupon',
     limited_time: 'Limited Time',
+  };
+
+  const getTargetLabel = (promo) => {
+    if (promo.target_menu_item_id) {
+      const item = menuItems.find((menuItem) => menuItem.id === promo.target_menu_item_id);
+      return item?.name ? `Item: ${item.name}` : 'Specific item';
+    }
+
+    if (promo.target_category_id) {
+      const category = menuCategories.find((cat) => cat.id === promo.target_category_id);
+      return category?.name ? `Category: ${category.name}` : 'Specific category';
+    }
+
+    return 'Entire order';
   };
 
   return (
@@ -238,6 +325,9 @@ export default function PromotionsManagement() {
                     <h3 className="font-semibold text-sm">{promo.title}</h3>
                     <Badge variant="outline" className="text-[10px]">
                       {typeLabels[promo.promotion_type] || 'Promotion'}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {getTargetLabel(promo)}
                     </Badge>
                   </div>
 
@@ -352,6 +442,83 @@ export default function PromotionsManagement() {
                 onChange={(e) => setForm({ ...form, discount_value: e.target.value })}
                 className="mt-1"
               />
+            </div>
+
+            <div className="rounded-xl border border-border p-3 space-y-3">
+              <div>
+                <Label>Apply Promotion To</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Entire order discounts apply to the full subtotal. Item and category discounts only apply to matching menu items.
+                </p>
+              </div>
+
+              <Select
+                value={form.apply_to || APPLY_TO.ENTIRE_ORDER}
+                onValueChange={handleApplyToChange}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={APPLY_TO.ENTIRE_ORDER}>Entire Order</SelectItem>
+                  <SelectItem value={APPLY_TO.MENU_ITEM}>Specific Menu Item</SelectItem>
+                  <SelectItem value={APPLY_TO.CATEGORY}>Menu Category</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {form.apply_to === APPLY_TO.MENU_ITEM && (
+                <div>
+                  <Label>Menu Item</Label>
+                  <Select
+                    value={form.target_menu_item_id || ''}
+                    onValueChange={(v) => setForm({ ...form, target_menu_item_id: v })}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Choose menu item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {menuItems.length === 0 ? (
+                        <SelectItem value="no-menu-items" disabled>
+                          No menu items found
+                        </SelectItem>
+                      ) : (
+                        menuItems.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {form.apply_to === APPLY_TO.CATEGORY && (
+                <div>
+                  <Label>Menu Category</Label>
+                  <Select
+                    value={form.target_category_id || ''}
+                    onValueChange={(v) => setForm({ ...form, target_category_id: v })}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Choose category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {menuCategories.length === 0 ? (
+                        <SelectItem value="no-categories" disabled>
+                          No categories found
+                        </SelectItem>
+                      ) : (
+                        menuCategories.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
             <div>

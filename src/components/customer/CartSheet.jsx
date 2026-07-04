@@ -29,6 +29,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { calculateCheckoutTotals } from "@/components/businessInsights/utils/checkoutPricing";
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 const TAX_RATE = 6;
@@ -314,27 +315,35 @@ export default function CartSheet() {
   const pendingRewardCount = pendingRewards.length;
   const displayCount = cartItemCount + pendingDealCount + pendingRewardCount;
 
-  const subtotal = cartItems.reduce(
-    (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
-    0
-  );
-
   const taxRate = TAX_RATE;
   const pointsPerDollar = Number(restaurantSettings?.points_per_dollar || 1);
   const rewardRounding = restaurantSettings?.reward_rounding === 'up' ? 'up' : 'down';
-  const taxAmount = subtotal * (taxRate / 100);
-  const total = subtotal + taxAmount;
-  const rawPointsToEarn = total * pointsPerDollar;
-  const pointsToEarn =
-    rewardRounding === 'up'
-      ? Math.ceil(rawPointsToEarn)
-      : Math.floor(rawPointsToEarn);
+
+  const checkoutTotals = useMemo(
+    () =>
+      calculateCheckoutTotals({
+        items: cartItems,
+        coupon: pendingDeals[0] || null,
+        taxRate,
+        pointsPerDollar,
+        rewardRounding,
+      }),
+    [cartItems, pendingDeals, taxRate, pointsPerDollar, rewardRounding]
+  );
+
+  const subtotal = checkoutTotals.subtotal;
+  const discountAmount = checkoutTotals.discountAmount;
+  const taxableAmount = checkoutTotals.taxableAmount;
+  const taxAmount = checkoutTotals.taxAmount;
+  const total = checkoutTotals.total;
+  const pointsToEarn = checkoutTotals.pointsToEarn;
 
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
 
   const checkoutItems = cartItems.map((item) => ({
     id: item.menu_item_id || item.id || null,
+    menu_item_id: item.menu_item_id || item.id || null,
     cart_item_key: item.cart_item_key || null,
     name: getCartItemDisplayName(item),
     base_name: item.name || 'Item',
@@ -343,6 +352,7 @@ export default function CartSheet() {
     quantity: Number(item.quantity || 0),
     price: Number(item.price || 0),
     category: item.category || item.category_name || null,
+    category_id: item.category_id || item.menu_category_id || null,
   }));
 
   const claimedCoupon = pendingDeals[0]
@@ -356,6 +366,22 @@ export default function CartSheet() {
           pendingDeals[0].discount_value !== undefined
             ? Number(pendingDeals[0].discount_value)
             : null,
+        minimumOrderAmount:
+          pendingDeals[0].minimum_order_amount !== undefined
+            ? Number(pendingDeals[0].minimum_order_amount)
+            : pendingDeals[0].min_order_amount !== undefined
+            ? Number(pendingDeals[0].min_order_amount)
+            : null,
+        applyTo: pendingDeals[0].apply_to || 'entire_order',
+        targetMenuItemId:
+          pendingDeals[0].target_menu_item_id ||
+          pendingDeals[0].targetMenuItemId ||
+          null,
+        targetCategoryId:
+          pendingDeals[0].target_category_id ||
+          pendingDeals[0].targetCategoryId ||
+          null,
+        discountAmount,
         status: 'pending',
       }
     : null;
@@ -377,9 +403,16 @@ export default function CartSheet() {
       JSON.stringify({
         customerCode,
         cartItems: checkoutItems,
-        pendingDeals: pendingDeals.map((d) => d.id),
+        pendingDeals: pendingDeals.map((d) => ({
+          id: d.id,
+          apply_to: d.apply_to || 'entire_order',
+          target_menu_item_id: d.target_menu_item_id || null,
+          target_category_id: d.target_category_id || null,
+        })),
         pendingRewards: pendingRewards.map((r) => r.id),
         subtotal: subtotal.toFixed(2),
+        discountAmount: discountAmount.toFixed(2),
+        taxableAmount: taxableAmount.toFixed(2),
         taxAmount: taxAmount.toFixed(2),
         total: total.toFixed(2),
         taxRate,
@@ -393,6 +426,8 @@ export default function CartSheet() {
       pendingDeals,
       pendingRewards,
       subtotal,
+      discountAmount,
+      taxableAmount,
       taxAmount,
       total,
       taxRate,
@@ -425,12 +460,15 @@ export default function CartSheet() {
 
     const { data, error } = await supabase
       .from('checkout_sessions')
-      .select('status')
+      .select('status, checkout_code, completed_at')
       .eq('restaurant_id', RESTAURANT_ID)
       .eq('checkout_code', code)
       .maybeSingle();
 
-    if (error) return;
+    if (error) {
+      console.error('Could not check checkout status:', error);
+      return;
+    }
 
     if (data?.status === 'completed') {
       triggerCompletedOverlay();
@@ -487,6 +525,8 @@ export default function CartSheet() {
         customer_code: customerCode,
         customer_name: customerName,
         subtotal: Number(subtotal.toFixed(2)),
+        discount_amount: Number(discountAmount.toFixed(2)),
+        taxable_amount: Number(taxableAmount.toFixed(2)),
         tax_amount: Number(taxAmount.toFixed(2)),
         total: Number(total.toFixed(2)),
         points_to_earn: pointsToEarn,
@@ -555,39 +595,44 @@ export default function CartSheet() {
   }, [waitingForCompletion, checkoutCode, checkoutStartedAt, customerCode]);
 
   useEffect(() => {
-  if (!customerCode || !waitingForCompletion) return;
+    if (!customerCode || !waitingForCompletion) return;
 
-  const channel = supabase
-    .channel(`checkout-completed-${customerCode}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'checkout_sessions',
-        filter: `customer_code=eq.${customerCode}`,
-      },
-      (payload) => {
-        const updated = payload?.new;
+    const realtimeFilter = checkoutCode
+      ? `checkout_code=eq.${checkoutCode}`
+      : `customer_code=eq.${customerCode}`;
 
-        if (updated?.status !== 'completed') return;
+    const channel = supabase
+      .channel(`checkout-completed-${checkoutCode || customerCode}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'checkout_sessions',
+          filter: realtimeFilter,
+        },
+        (payload) => {
+          const updated = payload?.new;
 
-        if (checkoutStartedAt && updated?.created_at) {
-          const updatedCreatedAt = new Date(updated.created_at).getTime();
-          const startedAt = new Date(checkoutStartedAt).getTime();
+          if (updated?.status !== 'completed') return;
+          if (checkoutCode && updated?.checkout_code !== checkoutCode) return;
 
-          if (updatedCreatedAt < startedAt) return;
+          if (!checkoutCode && checkoutStartedAt && updated?.created_at) {
+            const updatedCreatedAt = new Date(updated.created_at).getTime();
+            const startedAt = new Date(checkoutStartedAt).getTime();
+
+            if (updatedCreatedAt < startedAt) return;
+          }
+
+          triggerCompletedOverlay();
         }
+      )
+      .subscribe();
 
-        triggerCompletedOverlay();
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, [customerCode, waitingForCompletion, checkoutStartedAt]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [customerCode, checkoutCode, waitingForCompletion, checkoutStartedAt]);
 
   useEffect(() => {
     const handleCheckoutUpdate = () => {
@@ -945,6 +990,13 @@ export default function CartSheet() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>${subtotal.toFixed(2)}</span>
                 </div>
+
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-500 font-medium">
+                    <span>Coupon Discount</span>
+                    <span>-${discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
 
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Tax ({taxRate}%)</span>
