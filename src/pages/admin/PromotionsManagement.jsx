@@ -46,7 +46,8 @@ const emptyForm = {
   promotion_type: 'promotion',
   apply_to: APPLY_TO.ENTIRE_ORDER,
   target_menu_item_id: '',
-  target_category_id: '',
+target_category_id: '',
+minimum_order_amount: '',
 };
 
 function toDateInput(value) {
@@ -198,6 +199,11 @@ export default function PromotionsManagement() {
             apply_to: getApplyToFromPromo(promo),
             target_menu_item_id: promo.target_menu_item_id || '',
             target_category_id: promo.target_category_id || '',
+            minimum_order_amount:
+            promo.minimum_order_amount === null ||
+            promo.minimum_order_amount === undefined
+              ? ''
+              : String(promo.minimum_order_amount),
           }
         : { ...emptyForm }
     );
@@ -241,6 +247,10 @@ export default function PromotionsManagement() {
       promo_code: form.promo_code?.trim() || null,
       discount_type: normalizeDiscountType(form.discount_type),
       discount_value: Number.isFinite(discountValue) ? discountValue : null,
+      minimum_order_amount:
+      form.minimum_order_amount === ''
+      ? null
+      : Number(form.minimum_order_amount),
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       is_active: form.is_active ?? true,
@@ -443,7 +453,22 @@ export default function PromotionsManagement() {
                 className="mt-1"
               />
             </div>
-
+            <div>
+               <Label>Minimum Order Amount</Label>
+               <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Leave blank for no minimum"
+                  value={form.minimum_order_amount || ''}
+                  onChange={(e) =>
+                  setForm({
+                  ...form,
+                  minimum_order_amount: e.target.value,
+               })
+            }
+                  className="mt-1"
+               />
+           </div>
             <div className="rounded-xl border border-border p-3 space-y-3">
               <div>
                 <Label>Apply Promotion To</Label>

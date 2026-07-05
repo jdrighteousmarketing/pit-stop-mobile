@@ -319,16 +319,35 @@ export default function CartSheet() {
   const pointsPerDollar = Number(restaurantSettings?.points_per_dollar || 1);
   const rewardRounding = restaurantSettings?.reward_rounding === 'up' ? 'up' : 'down';
 
+const pricingCoupon = pendingDeals[0]
+  ? {
+      ...pendingDeals[0],
+      applyTo: pendingDeals[0].target_menu_item_id
+  ? 'menu_item'
+  : pendingDeals[0].target_category_id
+  ? 'category'
+  : pendingDeals[0].apply_to || 'entire_order',
+      targetMenuItemId: pendingDeals[0].target_menu_item_id || null,
+      targetCategoryId: pendingDeals[0].target_category_id || null,
+    }
+  : null;
+
   const checkoutTotals = useMemo(
     () =>
       calculateCheckoutTotals({
         items: cartItems,
-        coupon: pendingDeals[0] || null,
+        coupon: pricingCoupon,
         taxRate,
         pointsPerDollar,
         rewardRounding,
       }),
-    [cartItems, pendingDeals, taxRate, pointsPerDollar, rewardRounding]
+    [
+  cartItems,
+  pricingCoupon,
+  taxRate,
+  pointsPerDollar,
+  rewardRounding,
+]
   );
 
   const subtotal = checkoutTotals.subtotal;
@@ -337,6 +356,9 @@ export default function CartSheet() {
   const taxAmount = checkoutTotals.taxAmount;
   const total = checkoutTotals.total;
   const pointsToEarn = checkoutTotals.pointsToEarn;
+  const minimumOrderAmount = checkoutTotals.minimumOrderAmount || 0;
+  const minimumOrderRemaining = checkoutTotals.minimumOrderRemaining || 0;
+  const couponMinimumNotMet = checkoutTotals.couponMinimumNotMet || false;
 
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
@@ -372,7 +394,11 @@ export default function CartSheet() {
             : pendingDeals[0].min_order_amount !== undefined
             ? Number(pendingDeals[0].min_order_amount)
             : null,
-        applyTo: pendingDeals[0].apply_to || 'entire_order',
+        applyTo: pendingDeals[0].target_menu_item_id
+  ? 'menu_item'
+  : pendingDeals[0].target_category_id
+  ? 'category'
+  : pendingDeals[0].apply_to || 'entire_order',
         targetMenuItemId:
           pendingDeals[0].target_menu_item_id ||
           pendingDeals[0].targetMenuItemId ||
@@ -439,9 +465,6 @@ export default function CartSheet() {
 
   const triggerCompletedOverlay = () => {
     if (completedRef.current) return;
-
-    console.log('triggerCompletedOverlay fired');
-    console.log('Showing overlay...');
 
     completedRef.current = true;
 
@@ -525,8 +548,6 @@ export default function CartSheet() {
         customer_code: customerCode,
         customer_name: customerName,
         subtotal: Number(subtotal.toFixed(2)),
-        discount_amount: Number(discountAmount.toFixed(2)),
-        taxable_amount: Number(taxableAmount.toFixed(2)),
         tax_amount: Number(taxAmount.toFixed(2)),
         total: Number(total.toFixed(2)),
         points_to_earn: pointsToEarn,
@@ -936,6 +957,17 @@ export default function CartSheet() {
                       {deal.promo_code ? `Code: ${deal.promo_code} • ` : ''}
                       {getDiscountLabel(deal)}
                     </p>
+
+                    {couponMinimumNotMet && deal.id === pendingDeals[0]?.id && (
+                      <div className="mt-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 pr-10">
+                        <p className="text-sm font-semibold text-yellow-700 dark:text-yellow-300">
+                          Minimum order of ${minimumOrderAmount.toFixed(2)} required.
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Add ${minimumOrderRemaining.toFixed(2)} more to use this coupon.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -991,11 +1023,29 @@ export default function CartSheet() {
                   <span>${subtotal.toFixed(2)}</span>
                 </div>
 
-                {discountAmount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-500 font-medium">
-                    <span>Coupon Discount</span>
-                    <span>-${discountAmount.toFixed(2)}</span>
+                {couponMinimumNotMet && (
+                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+                    <p className="font-semibold text-yellow-700 dark:text-yellow-300">
+                      Coupon not applied yet.
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      Minimum order of ${minimumOrderAmount.toFixed(2)} required. Add ${minimumOrderRemaining.toFixed(2)} more.
+                    </p>
                   </div>
+                )}
+
+                {discountAmount > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-emerald-500 font-medium">
+                      <span>Coupon Discount</span>
+                      <span>-${discountAmount.toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Discounted Subtotal</span>
+                      <span>${taxableAmount.toFixed(2)}</span>
+                    </div>
+                  </>
                 )}
 
                 <div className="flex justify-between text-sm">
@@ -1003,8 +1053,8 @@ export default function CartSheet() {
                   <span>${taxAmount.toFixed(2)}</span>
                 </div>
 
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total</span>
+                <div className="border-t border-border pt-2 mt-2 flex justify-between font-bold text-lg">
+                  <span>Final Total</span>
                   <span>${total.toFixed(2)}</span>
                 </div>
 

@@ -127,23 +127,25 @@ export default function Promotions() {
       return Array.isArray(data) ? data : [];
     },
   });
-useEffect(() => {
-  const handleDealUpdate = () => {
-    queryClient.invalidateQueries({
-      queryKey: ['customerCheckoutDeals', RESTAURANT_ID, checkoutCustomerId],
-    });
 
-    setJustAddedId(null);
-  };
+  useEffect(() => {
+    const handleDealUpdate = () => {
+      queryClient.invalidateQueries({
+        queryKey: ['customerCheckoutDeals', RESTAURANT_ID, checkoutCustomerId],
+      });
 
-  window.addEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
-  window.addEventListener('focus', handleDealUpdate);
+      setJustAddedId(null);
+    };
 
-  return () => {
-    window.removeEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
-    window.removeEventListener('focus', handleDealUpdate);
-  };
-}, [queryClient, checkoutCustomerId]);
+    window.addEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
+    window.addEventListener('focus', handleDealUpdate);
+
+    return () => {
+      window.removeEventListener('pitstop_checkout_deals_updated', handleDealUpdate);
+      window.removeEventListener('focus', handleDealUpdate);
+    };
+  }, [queryClient, checkoutCustomerId]);
+
   const hiddenPromotionIds = useMemo(() => {
     return new Set([
       ...checkoutDeals.map((deal) => String(deal.promotion_id)),
@@ -176,6 +178,16 @@ useEffect(() => {
         promo_code: promo.promo_code,
         discount_type: promo.discount_type,
         discount_value: promo.discount_value,
+
+        minimum_order_amount:
+        promo.minimum_order_amount ??
+        promo.minimumOrderAmount ??
+        promo.min_order_amount ??
+        null,
+
+        apply_to: promo.apply_to || 'entire_order',
+        target_menu_item_id: promo.target_menu_item_id || null,
+        target_category_id: promo.target_category_id || null,
 
         status: 'pending',
       };

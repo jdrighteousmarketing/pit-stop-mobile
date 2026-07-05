@@ -348,9 +348,9 @@ const previewPointsToAward = settingsReady
               transaction_type: 'earned',
               points_amount: actualPointsAwarded,
               note:
-                actualPointsAwarded < requestedPoints
-                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardRounding)}. Capped at ${maxPointsPerCustomer} max points.`
-                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardRounding)}.`,
+              actualPointsAwarded < requestedPoints
+               ? `Earned ${actualPointsAwarded} points from a $${money(orderTotal)} purchase.`
+                : `Earned ${actualPointsAwarded} points from a $${money(orderTotal)} purchase.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
               awarded_by_employee_id: staffUser?.id || null,
               awarded_by_employee_auth_id: staffUser?.auth_user_id || null,

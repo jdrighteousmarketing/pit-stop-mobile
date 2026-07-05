@@ -72,7 +72,7 @@ export default function MenuItemCard({ item, index }) {
 
           {hasSizeOptions && (
             <div className="mt-2">
-              <p className="text-xs font-medium mb-1">Choose Size</p>
+              <p className="text-xs font-medium mb-1">Choose Option</p>
 
               <div className="flex flex-wrap gap-1.5">
                 {item.sizes.map((size) => {
