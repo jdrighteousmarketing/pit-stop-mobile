@@ -14,6 +14,15 @@ function itemAlreadyInCart(item, cartItems = []) {
   );
 }
 
+function getCartQuantityForItem(item, cartItems = []) {
+  return cartItems
+    .filter(
+      (cartItem) =>
+        String(cartItem.menu_item_id || cartItem.id || '') === String(item.id)
+    )
+    .reduce((sum, cartItem) => sum + Number(cartItem.quantity || 0), 0);
+}
+
 export default function RewardRequirementCard({
   type = 'reward',
   reward,
@@ -41,6 +50,9 @@ export default function RewardRequirementCard({
     null;
 
   const isDeal = type === 'deal';
+  const isBogoDeal =
+  isDeal && String(source?.discount_type || '').toLowerCase() === 'bogo';
+
 
   const { data: menuItems = [], isLoading } = useQuery({
     queryKey: [
@@ -72,13 +84,24 @@ export default function RewardRequirementCard({
   });
 
   const eligibleItems = useMemo(() => {
-    return menuItems
-      .map((item) => ({
+  return menuItems
+    .map((item) => {
+      const currentQuantity = getCartQuantityForItem(item, cartItems);
+
+      const quantityNeeded = isBogoDeal
+        ? Math.max(2 - currentQuantity, 0)
+        : itemAlreadyInCart(item, cartItems)
+        ? 0
+        : 1;
+
+      return {
         ...item,
         categoryName: item.menu_categories?.name || item.category_name || '',
-      }))
-      .filter((item) => !itemAlreadyInCart(item, cartItems));
-  }, [menuItems, cartItems]);
+        quantityNeeded,
+      };
+    })
+    .filter((item) => item.quantityNeeded > 0);
+}, [menuItems, cartItems, isBogoDeal]);
 
   if (isLoading) {
     return (
@@ -148,7 +171,11 @@ export default function RewardRequirementCard({
             </div>
           </div>
 
-          <AddToCartButton menuItem={item} />
+            <AddToCartButton
+           menuItem={item}
+           quantity={item.quantityNeeded}
+            onAdded={onAdded}
+           />
         </div>
       ))}
     </div>

@@ -7,7 +7,7 @@ import { useCustomerProfile } from '@/hooks/useCustomerProfile';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
-export default function AddToCartButton({ menuItem }) {
+export default function AddToCartButton({ menuItem, quantity = 1, onAdded }) {
   const navigate = useNavigate();
   const { data: customerProfile, isLoading } = useCustomerProfile();
   const { addToCart, isAdding } = useCart(customerProfile?.id);
@@ -32,15 +32,24 @@ export default function AddToCartButton({ menuItem }) {
     if (added || isAdding || isDisabled) return;
 
     addToCart(menuItem, {
+  quantity,
       onSuccess: () => {
-        setAdded(true);
+  setAdded(true);
 
-        toast.success(`${menuItem.display_name || menuItem.name} added to cart!`);
+  toast.success(
+    quantity > 1
+      ? `${quantity} ${menuItem.display_name || menuItem.name} added to cart!`
+      : `${menuItem.display_name || menuItem.name} added to cart!`
+  );
 
-        setTimeout(() => {
-          setAdded(false);
-        }, 1000);
-      },
+  if (onAdded) {
+    onAdded();
+  }
+
+  setTimeout(() => {
+    setAdded(false);
+  }, 1000);
+},
       onError: (error) => {
         console.error(error);
         toast.error('Failed to add item');

@@ -155,7 +155,12 @@ export function useCart(customerProfileId) {
       if (existingItem) {
         newItems = currentItems.map((item) =>
           item.cart_item_key === cartItemKey
-            ? { ...item, quantity: Number(item.quantity || 0) + 1 }
+            ? {
+    ...item,
+    quantity:
+      Number(item.quantity || 0) +
+      Number(options?.quantity || 1),
+  }
             : item
         );
       } else {
@@ -189,7 +194,7 @@ export function useCart(customerProfileId) {
             selected_size: menuItem.selected_size || null,
             selected_size_id: menuItem.selected_size_id || null,
             price: Number(menuItem.price || 0),
-            quantity: 1,
+            quantity: Number(options?.quantity || 1),
           },
         ];
       }
