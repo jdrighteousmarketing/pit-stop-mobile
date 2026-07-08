@@ -51,6 +51,14 @@ export function getCouponDiscountValue(coupon) {
   return Number(coupon?.discountValue ?? coupon?.discount_value ?? 0);
 }
 
+function getCouponBuyQuantity(coupon) {
+  return Math.max(1, Number(coupon?.buyQuantity ?? coupon?.buy_quantity ?? 1));
+}
+
+function getCouponGetQuantity(coupon) {
+  return Math.max(1, Number(coupon?.getQuantity ?? coupon?.get_quantity ?? 1));
+}
+
 function getCouponApplyTo(coupon) {
   return String(coupon?.applyTo || coupon?.apply_to || 'entire_order');
 }
@@ -121,8 +129,12 @@ function calculateBogoDiscount(items = [], coupon = null) {
 
   if (!targetMenuItemId) return 0;
 
+  const buyQuantity = getCouponBuyQuantity(coupon);
+  const getQuantity = getCouponGetQuantity(coupon);
+  const groupSize = buyQuantity + getQuantity;
+
   const matchingItems = items.filter(
-    (item) => getItemMenuItemId(item) === targetMenuItemId
+    (item) => String(getItemMenuItemId(item)) === String(targetMenuItemId)
   );
 
   const unitPrices = [];
@@ -138,13 +150,22 @@ function calculateBogoDiscount(items = [], coupon = null) {
     }
   });
 
-  if (unitPrices.length < 2) return 0;
+  if (unitPrices.length < groupSize) return 0;
 
   unitPrices.sort((a, b) => a - b);
 
-  const freeItemCount = Math.floor(unitPrices.length / 2);
+  const qualifyingGroups = Math.floor(unitPrices.length / groupSize);
+  const freeItemCount = qualifyingGroups * getQuantity;
   const freeItems = unitPrices.slice(0, freeItemCount);
-  const discount = freeItems.reduce((sum, price) => sum + price, 0);
+  const discountPercent = Math.max(
+  0,
+  Math.min(getCouponDiscountValue(coupon) || 100, 100)
+);
+
+const discount = freeItems.reduce(
+  (sum, price) => sum + price * (discountPercent / 100),
+  0
+);
 
   return toMoneyNumber(discount);
 }

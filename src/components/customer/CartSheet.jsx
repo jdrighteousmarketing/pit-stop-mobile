@@ -155,12 +155,12 @@ function dealHasMatchingCartItem(deal, items = []) {
         0
       );
 
-    if (
-      String(deal?.discount_type || '').toLowerCase() ===
-      'bogo'
-    ) {
-      return matchingQuantity >= 2;
-    }
+    if (String(deal?.discount_type || '').toLowerCase() === 'bogo') {
+  const buyQuantity = Number(deal?.buy_quantity || 1);
+  const getQuantity = Number(deal?.get_quantity || 1);
+
+  return matchingQuantity >= buyQuantity + getQuantity;
+}
 
     return matchingQuantity >= 1;
   }
@@ -468,6 +468,12 @@ const pricingCoupon = pendingDeals[0]
   : pendingDeals[0].apply_to || 'entire_order',
       targetMenuItemId: pendingDeals[0].target_menu_item_id || null,
       targetCategoryId: pendingDeals[0].target_category_id || null,
+      buy_quantity: Number(pendingDeals[0].buy_quantity || 1),
+get_quantity: Number(pendingDeals[0].get_quantity || 1),
+
+// Keep camelCase too for compatibility with other code
+buyQuantity: Number(pendingDeals[0].buy_quantity || 1),
+getQuantity: Number(pendingDeals[0].get_quantity || 1),
     }
   : null;
 
@@ -588,6 +594,11 @@ const hasBlockedCheckoutRequirements =
           null,
         discountAmount,
         status: 'pending',
+        buy_quantity: Number(pendingDeals[0].buy_quantity || 1),
+get_quantity: Number(pendingDeals[0].get_quantity || 1),
+
+buyQuantity: Number(pendingDeals[0].buy_quantity || 1),
+getQuantity: Number(pendingDeals[0].get_quantity || 1),
       }
     : null;
 

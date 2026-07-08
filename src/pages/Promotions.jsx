@@ -178,6 +178,9 @@ export default function Promotions() {
         promo_code: promo.promo_code,
         discount_type: promo.discount_type,
         discount_value: promo.discount_value,
+        buy_quantity: Number(promo.buy_quantity || 1),
+        get_quantity: Number(promo.get_quantity || 1),
+
 
         minimum_order_amount:
         promo.minimum_order_amount ??

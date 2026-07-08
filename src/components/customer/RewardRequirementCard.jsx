@@ -52,7 +52,9 @@ export default function RewardRequirementCard({
   const isDeal = type === 'deal';
   const isBogoDeal =
   isDeal && String(source?.discount_type || '').toLowerCase() === 'bogo';
-
+const requiredQuantity = isBogoDeal
+  ? Number(source?.buy_quantity || 1) + Number(source?.get_quantity || 1)
+  : 1;
 
   const { data: menuItems = [], isLoading } = useQuery({
     queryKey: [
@@ -89,10 +91,10 @@ export default function RewardRequirementCard({
       const currentQuantity = getCartQuantityForItem(item, cartItems);
 
       const quantityNeeded = isBogoDeal
-        ? Math.max(2 - currentQuantity, 0)
-        : itemAlreadyInCart(item, cartItems)
-        ? 0
-        : 1;
+  ? Math.max(requiredQuantity - currentQuantity, 0)
+  : itemAlreadyInCart(item, cartItems)
+  ? 0
+  : 1;
 
       return {
         ...item,
@@ -101,7 +103,7 @@ export default function RewardRequirementCard({
       };
     })
     .filter((item) => item.quantityNeeded > 0);
-}, [menuItems, cartItems, isBogoDeal]);
+}, [menuItems, cartItems, isBogoDeal, requiredQuantity]);
 
   if (isLoading) {
     return (

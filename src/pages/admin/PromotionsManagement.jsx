@@ -48,6 +48,8 @@ const emptyForm = {
   target_menu_item_id: '',
 target_category_id: '',
 minimum_order_amount: '',
+buy_quantity: '1',
+get_quantity: '1',
 };
 
 function toDateInput(value) {
@@ -204,6 +206,9 @@ export default function PromotionsManagement() {
             promo.minimum_order_amount === undefined
               ? ''
               : String(promo.minimum_order_amount),
+
+              buy_quantity: String(promo.buy_quantity ?? 1),
+              get_quantity: String(promo.get_quantity ?? 1),
           }
         : { ...emptyForm }
     );
@@ -257,6 +262,9 @@ export default function PromotionsManagement() {
       promotion_type: form.promotion_type || 'promotion',
       target_menu_item_id: targetMenuItemId,
       target_category_id: targetCategoryId,
+      buy_quantity: Number(form.buy_quantity || 1),
+      get_quantity: Number(form.get_quantity || 1),
+
       image_url: null,
     };
 
@@ -438,21 +446,71 @@ export default function PromotionsManagement() {
                 <SelectContent>
                   <SelectItem value="percentage">Percentage Off</SelectItem>
                   <SelectItem value="fixed">Fixed Amount Off</SelectItem>
-                  <SelectItem value="bogo">Buy One Get One</SelectItem>
+                  <SelectItem value="bogo">Buy X Get Y</SelectItem>
                   <SelectItem value="free_item">Free Item</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div>
-              <Label>Discount Value</Label>
+              <Label>
+  {normalizeDiscountType(form.discount_type) === 'bogo'
+    ? 'Get Item Discount (%)'
+    : normalizeDiscountType(form.discount_type) === 'fixed'
+    ? 'Dollar Amount Off'
+    : 'Percentage Off'}
+</Label>
               <Input
-                type="number"
-                value={form.discount_value || ''}
-                onChange={(e) => setForm({ ...form, discount_value: e.target.value })}
-                className="mt-1"
-              />
+  type="number"
+  value={form.discount_value || ''}
+  placeholder={
+    normalizeDiscountType(form.discount_type) === 'bogo'
+      ? '100 = FREE, 50 = Half Off'
+      : normalizeDiscountType(form.discount_type) === 'fixed'
+      ? '5.00'
+      : '25'
+  }
+  onChange={(e) => setForm({ ...form, discount_value: e.target.value })}
+  className="mt-1"
+/>
             </div>
+
+{normalizeDiscountType(form.discount_type) === 'bogo' && (
+  <div className="grid grid-cols-2 gap-3">
+    <div>
+      <Label>Buy Quantity</Label>
+      <Input
+        type="number"
+        min="1"
+        value={form.buy_quantity}
+        onChange={(e) =>
+          setForm({
+            ...form,
+            buy_quantity: e.target.value,
+          })
+        }
+        className="mt-1"
+      />
+    </div>
+
+    <div>
+      <Label>Get Quantity</Label>
+      <Input
+        type="number"
+        min="1"
+        value={form.get_quantity}
+        onChange={(e) =>
+          setForm({
+            ...form,
+            get_quantity: e.target.value,
+          })
+        }
+        className="mt-1"
+      />
+    </div>
+  </div>
+)}
+
             <div>
                <Label>Minimum Order Amount</Label>
                <Input
