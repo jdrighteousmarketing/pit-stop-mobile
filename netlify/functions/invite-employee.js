@@ -1,6 +1,8 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = process.env.RESTAURANT_ID || 'pit_stop_mobile';
+
+const APP_URL = process.env.APP_URL || 'https://pit-stop-mobile.netlify.app';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -29,7 +31,7 @@ exports.handler = async (event) => {
 
     const { data: inviteData, error: inviteError } =
       await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-  redirectTo: 'https://pit-stop-mobile.netlify.app/employee-login',
+  redirectTo: `${APP_URL}/employee-login`,
   data: {
     full_name: fullName || '',
     role: 'employee',

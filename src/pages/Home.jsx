@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useState } from 'react';
 import HomeHero from '@/components/customer/HomeHero';
 import QuickLinks from '@/components/customer/QuickLinks';
@@ -9,7 +10,7 @@ import PullToRefresh from '@/components/customer/PullToRefresh';
 import AddToCartButton from '@/components/customer/AddToCartButton';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const DEFAULT_HOURS = [
   { day: 'Monday', open: '10:00', close: '20:00', closed: false },

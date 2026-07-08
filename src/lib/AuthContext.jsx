@@ -1,8 +1,9 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext();
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

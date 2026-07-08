@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { Users, ScanLine, ArrowRight, User, Heart } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
@@ -6,7 +7,7 @@ import { format } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const employeeTools = [
   {

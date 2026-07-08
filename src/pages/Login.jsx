@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
-const RESTAURANT_ID = "pit_stop_mobile";
+const RESTAURANT_ID = restaurantConfig.id;
 
 export default function Login() {
   const [email, setEmail] = useState("");

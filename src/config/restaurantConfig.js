@@ -1,13 +1,20 @@
 export const restaurantConfig = {
   id: 'pit_stop_mobile',
 
-  name: 'Pit Stop Mobile',
+  name: import.meta.env.VITE_RESTAURANT_NAME || 'Pit Stop Mobile',
 
-  logo: '/logo.png',
+  logo: import.meta.env.VITE_RESTAURANT_LOGO || '/logo.png',
 
-  primaryColor: '#C8102E',
+  primaryColor:
+    import.meta.env.VITE_PRIMARY_COLOR || '#C8102E',
 
-  supportEmail: 'support@pitstopmobile.com',
+  supportEmail:
+    import.meta.env.VITE_SUPPORT_EMAIL ||
+    'support@pitstopmobile.com',
+
+  defaultTagline:
+    import.meta.env.VITE_DEFAULT_TAGLINE ||
+    'Fresh food, rewards, and fast service.',
 
   defaultTaxRate: 0.06,
 

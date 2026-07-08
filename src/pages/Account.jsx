@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useMemo, useState } from 'react';
 import {
   User,
@@ -27,7 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 const CUSTOMER_ORDER_HISTORY_DAYS = 14;
 
 function money(value) {

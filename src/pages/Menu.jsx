@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Search } from 'lucide-react';
@@ -9,7 +10,7 @@ import PullToRefresh from '@/components/customer/PullToRefresh';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 export default function Menu() {
   const [activeCategory, setActiveCategory] = useState('all');

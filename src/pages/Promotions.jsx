@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useMemo, useState } from 'react';
 import { Tag, Clock, Ticket, Percent } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +10,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
 import { toast } from 'sonner';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const typeConfig = {
   promotion: {

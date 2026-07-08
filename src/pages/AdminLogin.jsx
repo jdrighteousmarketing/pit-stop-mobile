@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,7 @@ import { Mail, Lock, Loader2, ShieldCheck } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { supabase } from "@/lib/supabaseClient";
 
-const RESTAURANT_ID = "pit_stop_mobile";
+const RESTAURANT_ID = restaurantConfig.id;
 
 export default function AdminLogin() {
   const navigate = useNavigate();

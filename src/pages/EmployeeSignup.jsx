@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -8,7 +9,7 @@ import { UserCheck, AlertCircle, CheckCircle, Loader2, Lock } from "lucide-react
 import AuthLayout from "@/components/AuthLayout";
 import { toast } from "sonner";
 
-const RESTAURANT_ID = "pit_stop_mobile";
+const RESTAURANT_ID = restaurantConfig.id;
 
 export default function EmployeeSignup() {
   const [loading, setLoading] = useState(true);

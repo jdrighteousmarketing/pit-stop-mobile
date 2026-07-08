@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
@@ -53,7 +54,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const createBlankSize = () => ({
   id: crypto.randomUUID(),

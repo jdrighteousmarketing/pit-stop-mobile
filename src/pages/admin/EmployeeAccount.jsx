@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useState } from 'react';
 import { User, Mail, Phone, MapPin, Save, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 function getSavedEmployeeFromStorage() {
   try {

@@ -1,9 +1,10 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useMemo, useState } from 'react';
 import { Heart, GripVertical, Search, Loader2 } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 function sortFeaturedItems(items) {
   return [...items]

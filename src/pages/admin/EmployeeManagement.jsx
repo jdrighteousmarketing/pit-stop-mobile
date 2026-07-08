@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { supabase } from '@/lib/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -24,7 +25,7 @@ export default function EmployeeManagement() {
   const [inviteSent, setInviteSent] = useState(false);
 
   const inviteRole = 'employee';
-  const restaurantId = 'pit_stop_mobile';
+  const RESTAURANT_ID = restaurantConfig.id;
   const queryClient = useQueryClient();
 
   const {

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Gift, Cake, Search, UserPlus } from 'lucide-react';
@@ -20,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const REWARD_TYPES = [
   { value: 'points_reward', label: 'Standard Points Reward' },

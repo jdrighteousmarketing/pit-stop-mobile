@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useMemo, useState } from 'react';
 import CustomerAnalyticsCard from '@/components/businessInsights/cards/CustomerAnalyticsCard';
 import MenuPerformanceCard from '@/components/businessInsights/cards/MenuPerformanceCard';
@@ -54,7 +55,7 @@ import {
 } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const CHART_COLORS = {
   gold: '#f59e0b',

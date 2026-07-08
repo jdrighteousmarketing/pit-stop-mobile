@@ -1,7 +1,8 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 export function useCustomerProfile() {
   return useQuery({

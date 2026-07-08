@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import RewardRequirementCard from '@/components/customer/RewardRequirementCard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -32,7 +33,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { calculateCheckoutTotals } from "@/components/businessInsights/utils/checkoutPricing";
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 const TAX_RATE = 6;
 
 const CONFETTI = Array.from({ length: 52 }).map((_, index) => {

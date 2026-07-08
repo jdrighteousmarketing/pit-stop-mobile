@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
 import { Gift, Star, Cake, QrCode, Trophy } from 'lucide-react';
@@ -9,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import PullToRefresh from '@/components/customer/PullToRefresh';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 function getPointsBalance(customer) {
   return Number(customer?.points_balance ?? 0);

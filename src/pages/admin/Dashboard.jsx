@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { restaurantConfig } from '@/config/restaurantConfig';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -25,7 +26,7 @@ import { Link } from 'react-router-dom';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const managementTools = [
   { path: '/admin/menu', icon: UtensilsCrossed, label: 'Menu', desc: 'Add, edit & organize menu items', color: 'from-orange-500/20 to-amber-500/10 border-orange-500/30', iconColor: 'text-orange-400' },

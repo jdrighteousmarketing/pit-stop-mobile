@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import {
   Phone,
   Mail,
@@ -14,7 +15,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
-const RESTAURANT_ID = 'pit_stop_mobile';
+const RESTAURANT_ID = restaurantConfig.id;
 
 const DEFAULT_HOURS = [
   { day: 'Monday', open: '11:00', close: '21:00', closed: false },
@@ -27,9 +28,9 @@ const DEFAULT_HOURS = [
 ];
 
 const FALLBACK_SETTINGS = {
-  business_name: 'Pit Stop Mobile',
-  name: 'Pit Stop Mobile',
-  tagline: 'Fresh food, rewards, and fast service.',
+  business_name: restaurantConfig.name,
+  name: restaurantConfig.name,
+  tagline: restaurantConfig.defaultTagline,
   phone: '',
   email: '',
   website: '',
