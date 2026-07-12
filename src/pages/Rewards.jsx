@@ -578,21 +578,23 @@ export default function Rewards() {
             {birthdayRewards.map((reward) => (
               <div
                 key={reward.id}
-                className="bg-gradient-to-r from-pink-50 to-amber-50 dark:from-pink-950/30 dark:to-amber-950/30 rounded-2xl border border-pink-200/50 dark:border-pink-800/30 p-4"
+                className="rounded-2xl border p-4 bg-[#3b151b] border-[#7c2d3a]"
               >
                 <div className="flex items-center gap-3">
                   <div className="text-3xl">🎂</div>
 
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm">{reward.name}</h3>
+                    <h3 className="font-semibold text-sm text-white">
+                      {reward.name}
+                    </h3>
 
                     {reward.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-pink-100 mt-0.5">
                         {reward.description}
                       </p>
                     )}
 
-                    <p className="text-[10px] text-muted-foreground mt-1">
+                    <p className="text-[10px] text-pink-200 mt-1">
                       {profile.isPreviewMode
                         ? 'Admin preview: birthday rewards appear here when customers are within 30 days of their birthday.'
                         : 'Available within 30 days of your birthday. If removed from checkout, it will return here.'}
