@@ -64,21 +64,25 @@ export default function Login() {
       title="Welcome Back"
       subtitle="Log in to your rewards account"
       footer={
-        <div className="flex flex-col gap-2 text-center">
-          <span className="text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = "/register";
-              }}
-              className="text-primary font-medium hover:underline bg-none border-none cursor-pointer"
-            >
-              Sign up
-            </button>
-          </span>
-        </div>
-      }
+  <div className="flex flex-col gap-3 text-center">
+    <span className="text-sm text-muted-foreground">
+      Don&apos;t have an account?{" "}
+      <Link
+        to="/register"
+        className="text-primary font-medium hover:underline"
+      >
+        Sign up
+      </Link>
+    </span>
+
+    <p className="pt-3 text-xs text-muted-foreground">
+      Login is powered by{" "}
+      <span className="font-semibold text-primary">
+        JD Righteous LLC
+      </span>
+    </p>
+  </div>
+}
     >
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">

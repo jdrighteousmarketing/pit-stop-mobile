@@ -98,7 +98,12 @@ export default function Register() {
         <p className="text-white/25 text-xs text-center -mt-3">
           Employees & admins use the links at the top of the page.
         </p>
-
+            <p className="text-white/35 text-xs text-center -mt-2">
+  Powered by{" "}
+  <span className="text-amber-400/80 font-semibold">
+    JD Righteous LLC
+  </span>
+</p>
 
       </div>
 

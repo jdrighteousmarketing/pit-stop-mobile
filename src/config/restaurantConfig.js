@@ -26,6 +26,8 @@ export const restaurantConfig = {
   primaryColor:
     import.meta.env.VITE_PRIMARY_COLOR || '#C8102E',
 
+    emailHeaderImage: '/branding/email-header.png',
+
   // =========================================================================
   // Default Contact Information
   // =========================================================================

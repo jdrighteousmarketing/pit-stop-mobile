@@ -1,34 +1,50 @@
+// @ts-nocheck
+
 import { restaurantConfig } from '@/config/restaurantConfig';
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Mail, Lock, Loader2, UserPlus } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabaseClient';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Mail, Lock, Loader2, UserPlus } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
+
 
 const RESTAURANT_ID = restaurantConfig.id;
 
 function createCustomerCode() {
-  return "PIT-" + Math.floor(10000 + Math.random() * 90000);
+  const prefix = restaurantConfig.customerCodePrefix || 'PIT';
+
+  return `${prefix}-${Math.floor(10000 + Math.random() * 90000)}`;
 }
 
 export default function Signup() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setError("");
-    setSuccess("");
+  const handleRegister = async (event) => {
+    event.preventDefault();
+
+    setError('');
+    setSuccess('');
+
+    if (!email.trim()) {
+      setError('Please enter your email address.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
 
     if (password !== confirm) {
-      setError("Passwords do not match");
+      setError('Passwords do not match.');
       return;
     }
 
@@ -36,16 +52,28 @@ export default function Signup() {
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      const name = cleanEmail.split("@")[0];
+      const name = cleanEmail.split('@')[0];
       const customerCode = createCustomerCode();
 
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/login`,
-        },
-      });
+      const emailHeaderUrl = new URL(
+  restaurantConfig.emailHeaderImage,
+  window.location.origin
+).toString();
+
+const { data: authData, error: authError } =
+  await supabase.auth.signUp({
+    email: cleanEmail,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/login`,
+      data: {
+        restaurant_id: RESTAURANT_ID,
+        restaurant_name: restaurantConfig.restaurantName,
+        email_header_url: emailHeaderUrl,
+        primary_color: restaurantConfig.primaryColor,
+      },
+    },
+  });
 
       if (authError) {
         throw authError;
@@ -54,7 +82,7 @@ export default function Signup() {
       const authUserId = authData?.user?.id;
 
       if (!authUserId) {
-        throw new Error("Could not create customer auth user.");
+        throw new Error('Could not create customer account.');
       }
 
       const customerRow = {
@@ -71,23 +99,26 @@ export default function Signup() {
       };
 
       const { error: insertError } = await supabase
-        .from("customers")
+        .from('customers')
         .insert([customerRow]);
 
       if (insertError) {
         throw insertError;
       }
 
-      setEmail("");
-      setPassword("");
-      setConfirm("");
+      setEmail('');
+      setPassword('');
+      setConfirm('');
 
       setSuccess(
-        "Account created successfully! Please check your email and click the verification link before logging in."
+        'Account created successfully! Please check your email and click the verification link before logging in.'
       );
     } catch (err) {
-      console.error("Customer signup failed:", err);
-      setError(err.message || "Signup failed. Please try again.");
+      console.error('Customer signup failed:', err);
+
+      setError(
+        err.message || 'Signup failed. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
@@ -99,22 +130,41 @@ export default function Signup() {
       title="Create Account"
       subtitle="Join the rewards program today"
       footer={
-        <>
-          Already have an account?{" "}
-          <Link to="/login" className="text-primary font-medium hover:underline">
-            Log In
+        <div className="flex flex-col gap-3 text-center">
+          <span className="text-sm text-muted-foreground">
+            Already have an account?{' '}
+            <Link
+              to="/login"
+              className="font-medium text-primary hover:underline"
+            >
+              Log In
+            </Link>
+          </span>
+
+          <Link
+            to="/register"
+            className="text-sm text-muted-foreground transition-colors hover:text-primary"
+          >
+            ← Back to Register
           </Link>
-        </>
+
+          <p className="pt-3 text-xs text-muted-foreground">
+            Powered by{' '}
+            <span className="font-semibold text-primary">
+              JD Righteous LLC
+            </span>
+          </p>
+        </div>
       }
     >
       {success && (
-        <div className="mb-4 p-3 rounded-lg bg-green-500/10 text-green-600 text-sm border border-green-500/20">
+        <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/10 p-3 text-sm text-green-600">
           {success}
         </div>
       )}
 
       {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+        <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -124,7 +174,10 @@ export default function Signup() {
           <Label htmlFor="email">Email</Label>
 
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Mail
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
 
             <Input
               id="email"
@@ -132,8 +185,9 @@ export default function Signup() {
               autoComplete="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="pl-10 h-12"
+              onChange={(event) => setEmail(event.target.value)}
+              className="h-12 pl-10"
+              disabled={loading}
               required
               autoFocus
             />
@@ -144,7 +198,10 @@ export default function Signup() {
           <Label htmlFor="password">Password</Label>
 
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Lock
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
 
             <Input
               id="password"
@@ -152,8 +209,9 @@ export default function Signup() {
               autoComplete="new-password"
               placeholder="••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pl-10 h-12"
+              onChange={(event) => setPassword(event.target.value)}
+              className="h-12 pl-10"
+              disabled={loading}
               required
             />
           </div>
@@ -163,7 +221,10 @@ export default function Signup() {
           <Label htmlFor="confirm">Confirm Password</Label>
 
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Lock
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
 
             <Input
               id="confirm"
@@ -171,21 +232,26 @@ export default function Signup() {
               autoComplete="new-password"
               placeholder="••••••••"
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="pl-10 h-12"
+              onChange={(event) => setConfirm(event.target.value)}
+              className="h-12 pl-10"
+              disabled={loading}
               required
             />
           </div>
         </div>
 
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button
+          type="submit"
+          className="h-12 w-full font-medium"
+          disabled={loading}
+        >
           {loading ? (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Creating account...
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Creating Account...
             </>
           ) : (
-            "Create Account"
+            'Create Account'
           )}
         </Button>
       </form>

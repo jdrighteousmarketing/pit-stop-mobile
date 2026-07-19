@@ -138,11 +138,11 @@ export default function AdminLayout() {
       )}
 
       <aside
-        className={cn(
-          'fixed top-0 left-0 h-full w-64 bg-card border-r border-border z-50 transition-transform duration-300 lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      >
+  className={cn(
+    'fixed top-0 left-0 h-full w-64 overflow-hidden bg-card border-r border-border z-50 transition-transform duration-300 lg:translate-x-0',
+    sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+  )}
+>
         <div className="p-5 border-b border-border flex items-center justify-between">
           <div>
             <h2 className="font-display font-bold text-lg">
@@ -151,14 +151,16 @@ export default function AdminLayout() {
             <p className="text-xs text-muted-foreground">{user?.email}</p>
           </div>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X className="w-4 h-4" />
-          </Button>
+          {sidebarOpen && (
+  <Button
+    variant="ghost"
+    size="icon"
+    className="lg:hidden"
+    onClick={() => setSidebarOpen(false)}
+  >
+    <X className="w-4 h-4" />
+  </Button>
+)}
         </div>
 
         <nav className="p-3 space-y-1">

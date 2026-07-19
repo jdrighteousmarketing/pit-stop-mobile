@@ -1,6 +1,6 @@
 import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useMemo, useState } from 'react';
-import { Tag, Clock, Ticket, Percent } from 'lucide-react';
+import { Tag, Clock, Ticket, Percent, Lock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
@@ -88,7 +88,7 @@ export default function Promotions() {
     customerProfile?.customer_code ||
     null;
 
-  const checkoutCustomerId = customerId || customerCode || 'guest-customer';
+  const checkoutCustomerId = customerId || customerCode || null;
 
   const { data: promotions = [], isLoading: promotionsLoading } = useQuery({
     queryKey: ['promotions', RESTAURANT_ID],
@@ -291,16 +291,29 @@ export default function Promotions() {
                     </p>
                   )}
 
-                  <Button
-                    type="button"
-                    className="w-full mt-4"
-                    disabled={redeemingId === promo.id}
-                    onClick={() => handleRedeemDeal(promo)}
-                  >
-                    {redeemingId === promo.id
-                      ? 'Added to Checkout'
-                      : 'Add Deal to Checkout'}
-                  </Button>
+                  {customerId ? (
+  <Button
+    type="button"
+    className="w-full mt-4"
+    disabled={redeemingId === promo.id}
+    onClick={() => handleRedeemDeal(promo)}
+  >
+    {redeemingId === promo.id
+      ? 'Added to Checkout'
+      : 'Add Deal to Checkout'}
+  </Button>
+) : (
+  <Button
+    type="button"
+    className="w-full mt-4"
+    variant="secondary"
+    disabled
+  >
+    <Lock className="w-4 h-4 mr-2" />
+    Log in to add to checkout
+  </Button>
+)}
+
 
                   {promo.end_date && (
                     <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">

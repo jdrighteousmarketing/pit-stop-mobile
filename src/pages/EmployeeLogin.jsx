@@ -85,20 +85,32 @@ export default function EmployeeLogin() {
       title="Employee Login"
       subtitle="Staff access only"
       footer={
-        <>
-          <div className="flex flex-col gap-2 text-center">
-            <span className="text-sm text-muted-foreground">
-              First time?{" "}
-              <Link
-                to="/employee-signup"
-                className="text-primary font-medium hover:underline"
-              >
-                Employee Sign Up
-              </Link>
-            </span>
-          </div>
-        </>
-      }
+  <div className="flex flex-col gap-3 text-center">
+    <span className="text-sm text-muted-foreground">
+      First time?{" "}
+      <Link
+        to="/employee-signup"
+        className="text-primary font-medium hover:underline"
+      >
+        Employee Sign Up
+      </Link>
+    </span>
+
+    <Link
+      to="/register"
+      className="text-sm text-muted-foreground hover:text-primary transition-colors"
+    >
+      ← Back to Register
+    </Link>
+
+    <p className="pt-3 text-xs text-muted-foreground">
+      Login is powered by{" "}
+      <span className="font-semibold text-primary">
+        JD Righteous LLC
+      </span>
+    </p>
+  </div>
+}
     >
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">

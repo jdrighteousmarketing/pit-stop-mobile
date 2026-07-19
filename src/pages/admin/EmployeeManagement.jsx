@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
 import { supabase } from '@/lib/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -33,12 +34,12 @@ export default function EmployeeManagement() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['employees', restaurantId],
+    queryKey: ['employees', RESTAURANT_ID],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employees')
         .select('*')
-        .eq('restaurant_id', restaurantId)
+        .eq('restaurant_id', RESTAURANT_ID)
         .order('full_name', { ascending: true });
 
       if (error) {
@@ -67,33 +68,49 @@ export default function EmployeeManagement() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: async ({ email, name }) => {
-      const response = await fetch('/.netlify/functions/invite-employee', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          fullName: name,
-        }),
-      });
+  mutationFn: async ({ email, name }) => {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-      const result = await response.json();
+    if (sessionError) {
+      throw sessionError;
+    }
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to invite employee');
-      }
+    if (!session?.access_token) {
+      throw new Error(
+        'Your administrator session has expired. Please sign in again.'
+      );
+    }
 
-      return result;
-    },
+    const response = await fetch('/.netlify/functions/invite-employee', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        email,
+        fullName: name,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to invite employee');
+    }
+
+    return result;
+  },
 
     onSuccess: () => {
       setInviteSent(true);
       toast.success('Employee invite sent!');
 
       queryClient.invalidateQueries({
-        queryKey: ['employees', restaurantId],
+        queryKey: ['employees', RESTAURANT_ID],
       });
 
       setTimeout(() => {
@@ -103,7 +120,7 @@ export default function EmployeeManagement() {
         setInviteName('');
 
         queryClient.invalidateQueries({
-          queryKey: ['employees', restaurantId],
+          queryKey: ['employees', RESTAURANT_ID],
         });
       }, 2000);
     },
@@ -120,7 +137,7 @@ export default function EmployeeManagement() {
         .from('employees')
         .delete()
         .eq('id', employeeId)
-        .eq('restaurant_id', restaurantId);
+        .eq('restaurant_id', RESTAURANT_ID);
 
       if (error) {
         console.error('Delete employee error:', error);
@@ -134,7 +151,7 @@ export default function EmployeeManagement() {
       toast.success('Employee deleted');
 
       queryClient.invalidateQueries({
-        queryKey: ['employees', restaurantId],
+        queryKey: ['employees', RESTAURANT_ID],
       });
     },
 

@@ -136,7 +136,19 @@ export default function EmployeeSignup() {
 
   if (success) {
     return (
-      <AuthLayout icon={CheckCircle} title="Employee Account Ready" subtitle="You can now sign in">
+      <AuthLayout
+  icon={CheckCircle}
+  title="Employee Account Ready"
+  subtitle="You can now sign in"
+  footer={
+    <p className="text-xs text-muted-foreground text-center">
+      Login is powered by{" "}
+      <span className="font-semibold text-primary">
+        JD Righteous LLC
+      </span>
+    </p>
+  }
+>
         <div className="text-center p-6">
           <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
           <p className="text-muted-foreground mb-4">Redirecting to Employee Login...</p>
@@ -154,13 +166,32 @@ export default function EmployeeSignup() {
       title="Employee Invite"
       subtitle="Create your staff password"
       footer={
-        <span className="text-sm text-muted-foreground">
-          Already activated?{" "}
-          <Link to="/employee-login" className="text-primary font-medium hover:underline">
-            Employee Login
-          </Link>
-        </span>
-      }
+  <div className="flex flex-col gap-3 text-center">
+    <span className="text-sm text-muted-foreground">
+      Already activated?{" "}
+      <Link
+        to="/employee-login"
+        className="text-primary font-medium hover:underline"
+      >
+        Employee Login
+      </Link>
+    </span>
+
+    <Link
+      to="/register"
+      className="text-sm text-muted-foreground hover:text-primary transition-colors"
+    >
+      ← Back to Register
+    </Link>
+
+    <p className="pt-3 text-xs text-muted-foreground">
+      Login is powered by{" "}
+      <span className="font-semibold text-primary">
+        JD Righteous LLC
+      </span>
+    </p>
+  </div>
+}
     >
       {loading && (
         <div className="text-center p-6">
