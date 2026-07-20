@@ -747,6 +747,18 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
     setShowSuccessOverlay(false);
 
     try {
+      const { error: cancelOldSessionsError } = await supabase
+  .from('checkout_sessions')
+  .update({
+    status: 'cancelled',
+  })
+  .eq('restaurant_id', RESTAURANT_ID)
+  .eq('customer_code', customerCode)
+  .eq('status', 'pending');
+
+if (cancelOldSessionsError) {
+  throw cancelOldSessionsError;
+}
       const now = new Date().toISOString();
       const newCheckoutCode = makeCheckoutCode();
 
@@ -794,22 +806,32 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
   }, [checkoutSignature, waitingForCompletion]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    if (!hasCheckoutContent) return;
-    if (checkoutQrValue) return;
-    if (settingsLoading || !restaurantSettings) return;
-    if (hasBlockedCheckoutRequirements) return;
+  if (!isOpen) return;
+  if (!hasCheckoutContent) return;
+  if (checkoutQrValue) return;
+  if (settingsLoading || !restaurantSettings) return;
+  if (hasBlockedCheckoutRequirements) return;
+  if (waitingForCompletion) return;
 
-    createCheckoutQr();
-  }, [
-    isOpen,
-    hasCheckoutContent,
-    checkoutQrValue,
-    checkoutSignature,
-    settingsLoading,
-    restaurantSettings,
-    hasBlockedCheckoutRequirements,
-  ]);
+  const timer = setTimeout(() => {
+    if (!creatingRef.current && !checkoutQrValue) {
+      createCheckoutQr();
+    }
+  }, 500);
+
+  return () => {
+    clearTimeout(timer);
+  };
+}, [
+  isOpen,
+  hasCheckoutContent,
+  checkoutQrValue,
+  checkoutSignature,
+  settingsLoading,
+  restaurantSettings,
+  hasBlockedCheckoutRequirements,
+  waitingForCompletion,
+]);
 
   useEffect(() => {
     if (!waitingForCompletion) return;
@@ -888,45 +910,73 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
 
   if (isLoading || settingsLoading || !customerProfile) return null;
 
-  const resetActiveCheckoutSession = () => {
-    setCheckoutQrValue('');
-    setCheckoutCode('');
-    setCheckoutStartedAt('');
-    setWaitingForCompletion(false);
-    completedRef.current = false;
-  };
+    const resetActiveCheckoutSession = async () => {
+  // Immediately remove the QR from the customer's screen.
+  setCheckoutQrValue('');
+  setCheckoutCode('');
+  setCheckoutStartedAt('');
+  setWaitingForCompletion(false);
+  completedRef.current = false;
 
-  const handleRemoveDeal = async (deal) => {
-    setRemovingDealId(deal.id);
-    resetActiveCheckoutSession();
+  if (!customerCode) return;
 
-    try {
-      const { error } = await supabase
-        .from('customer_checkout_deals')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          notes: 'Removed from customer cart.',
-        })
-        .eq('id', deal.id)
-        .eq('restaurant_id', RESTAURANT_ID)
-        .eq('status', 'pending');
 
-      if (error) throw error;
 
-      await refetchPendingDeals();
-      window.dispatchEvent(new Event('pitstop_checkout_deals_updated'));
-      toast.success('Coupon removed.');
-    } catch (error) {
-      toast.error(error.message || 'Could not remove coupon.');
-    } finally {
-      setRemovingDealId(null);
-    }
-  };
+  // Cancel every pending checkout session belonging to this customer.
+  const { data, error } = await supabase
+    .from('checkout_sessions')
+    .update({
+      status: 'cancelled',
+    })
+    .eq('restaurant_id', RESTAURANT_ID)
+    .eq('customer_code', customerCode)
+    .eq('status', 'pending')
+    .select('id, checkout_code, customer_code, status');
 
-  const handleRemoveReward = async (reward) => {
+  if (error) {
+    console.error('Could not cancel pending checkout sessions:', error);
+    toast.error(`Cancellation failed: ${error.message}`);
+    return;
+  }
+
+ 
+
+  if (!data || data.length === 0) {
+    toast.error('No pending checkout session was matched.');
+  }
+};
+
+const handleRemoveDeal = async (deal) => {
+  setRemovingDealId(deal.id);
+  await resetActiveCheckoutSession();
+
+  try {
+    const { error } = await supabase
+      .from('customer_checkout_deals')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        notes: 'Removed from customer cart.',
+      })
+      .eq('id', deal.id)
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('status', 'pending');
+
+    if (error) throw error;
+
+    await refetchPendingDeals();
+    window.dispatchEvent(new Event('pitstop_checkout_deals_updated'));
+    toast.success('Coupon removed.');
+  } catch (error) {
+    toast.error(error.message || 'Could not remove coupon.');
+  } finally {
+    setRemovingDealId(null);
+  }
+};
+
+    const handleRemoveReward = async (reward) => {
     setRemovingRewardId(reward.id);
-    resetActiveCheckoutSession();
+    await resetActiveCheckoutSession();
 
     try {
       const pointsToRefund = Number(reward.points_required || 0);
@@ -989,11 +1039,11 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
     }
   };
 
-  const handleClearCart = () => {
-    clearCart();
-    resetActiveCheckoutSession();
-    toast.success('Cart cleared.');
-  };
+    const handleClearCart = async () => {
+  clearCart();
+  await resetActiveCheckoutSession();
+  toast.success('Cart cleared.');
+};
 
   const handleSuccessContinue = () => {
     clearCart();
@@ -1091,13 +1141,15 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
                         size="icon"
                         variant="outline"
                         className="h-8 w-8"
-                        onClick={() => {
-                          resetActiveCheckoutSession();
-                          updateQuantity({
-                            cartItemKey: item.cart_item_key,
-                            quantity: Number(item.quantity || 0) - 1,
-                          });
-                        }}
+                           
+                        onClick={async () => {
+  updateQuantity({
+    cartItemKey: item.cart_item_key,
+    quantity: Number(item.quantity || 0) - 1,
+  });
+
+  await resetActiveCheckoutSession();
+}}
                       >
                         <Minus className="w-3 h-3" />
                       </Button>
@@ -1108,13 +1160,14 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
                         size="icon"
                         variant="outline"
                         className="h-8 w-8"
-                        onClick={() => {
-                          resetActiveCheckoutSession();
-                          updateQuantity({
-                            cartItemKey: item.cart_item_key,
-                            quantity: Number(item.quantity || 0) + 1,
-                          });
-                        }}
+                           onClick={async () => {
+  updateQuantity({
+    cartItemKey: item.cart_item_key,
+    quantity: Number(item.quantity || 0) + 1,
+  });
+
+  await resetActiveCheckoutSession();
+}}
                       >
                         <Plus className="w-3 h-3" />
                       </Button>
@@ -1123,10 +1176,10 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-destructive"
-                        onClick={() => {
-                          resetActiveCheckoutSession();
-                          removeFromCart(item.cart_item_key);
-                        }}
+                          onClick={async () => {
+  removeFromCart(item.cart_item_key);
+  await resetActiveCheckoutSession();
+}}
                       >
                         <Trash2 className="w-3 h-3" />
                       </Button>
@@ -1144,8 +1197,7 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
                       aria-label="Remove coupon"
                       className="absolute top-3 right-3 h-8 w-8 rounded-full border border-border bg-background flex items-center justify-center text-muted-foreground hover:text-destructive"
                       disabled={removingDealId === deal.id}
-                      onClick={() => {
-                        resetActiveCheckoutSession();
+                         onClick={() => {
                         handleRemoveDeal(deal);
                       }}
                     >
@@ -1206,8 +1258,7 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
                       aria-label="Remove reward"
                       className="absolute top-3 right-3 h-8 w-8 rounded-full border border-border bg-background flex items-center justify-center text-muted-foreground hover:text-destructive"
                       disabled={removingRewardId === reward.id}
-                      onClick={() => {
-                        resetActiveCheckoutSession();
+                         onClick={() => {
                         handleRemoveReward(reward);
                       }}
                     >

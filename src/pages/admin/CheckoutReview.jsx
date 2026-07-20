@@ -98,11 +98,15 @@ export default function CheckoutReview() {
   const navigate = useNavigate();
   const location = useLocation();
   const [awarding, setAwarding] = useState(false);
-  const [rewardSettings, setRewardSettings] = useState({
+    const [rewardSettings, setRewardSettings] = useState({
     pointsPerDollar: 1,
     maxPointsPerCustomer: 500,
     rewardRounding: null,
   });
+
+  const [liveCoupon, setLiveCoupon] = useState(null);
+  const [liveRewards, setLiveRewards] = useState([]);
+  const [liveCheckoutLoading, setLiveCheckoutLoading] = useState(true);
 
   const checkoutData = useMemo(() => {
     const stateData = location.state?.checkoutData;
@@ -110,15 +114,93 @@ export default function CheckoutReview() {
     return safeJsonParse(localStorage.getItem('pitStopScannedCheckout'), {});
   }, [location.state]);
 
-  const items = checkoutData.items || [];
-  const claimedCoupon =
-    checkoutData.claimedCoupon || checkoutData.claimed_coupon || null;
+    const items = checkoutData.items || [];
+  const customerCode = checkoutData.customerCode;
 
-  const claimedRewards = normalizeRewards(
-    checkoutData.claimedReward ||
-      checkoutData.claimedRewards ||
-      checkoutData.claimed_rewards
-  );
+  const loadLiveCheckoutSelections = async () => {
+    if (!customerCode) {
+      return {
+        coupon: null,
+        rewards: [],
+      };
+    }
+
+    const [
+      { data: pendingDeals, error: dealsError },
+      { data: pendingRewards, error: rewardsError },
+    ] = await Promise.all([
+      supabase
+        .from('customer_checkout_deals')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerCode)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+
+      supabase
+        .from('customer_checkout_rewards')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerCode)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (dealsError) throw dealsError;
+    if (rewardsError) throw rewardsError;
+
+    const currentCoupon =
+      Array.isArray(pendingDeals) && pendingDeals.length > 0
+        ? pendingDeals[0]
+        : null;
+
+    const currentRewards = Array.isArray(pendingRewards)
+      ? pendingRewards
+      : [];
+
+    return {
+      coupon: currentCoupon,
+      rewards: currentRewards,
+    };
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCurrentCheckout = async () => {
+      setLiveCheckoutLoading(true);
+
+      try {
+        const currentSelections = await loadLiveCheckoutSelections();
+
+        if (!isMounted) return;
+
+        setLiveCoupon(currentSelections.coupon);
+        setLiveRewards(currentSelections.rewards);
+      } catch (error) {
+        console.error('Could not load live checkout selections:', error);
+
+        if (isMounted) {
+          toast.error('Could not load the customer’s current coupon or rewards.');
+          setLiveCoupon(null);
+          setLiveRewards([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLiveCheckoutLoading(false);
+        }
+      }
+    };
+
+    loadCurrentCheckout();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [customerCode]);
+
+  const claimedCoupon = liveCoupon;
+  const claimedRewards = liveRewards;
 
   const checkoutTotals = calculateCheckoutTotals({
     items,
@@ -128,6 +210,8 @@ export default function CheckoutReview() {
     pointsPerDollar: rewardSettings.pointsPerDollar,
     rewardRounding: rewardSettings.rewardRounding || 'down',
   });
+
+
 
   const checkoutSubtotal = Number(checkoutTotals.subtotal ?? checkoutData.subtotal ?? 0);
   const checkoutCouponDiscountAmount = Number(checkoutTotals.couponDiscountAmount || 0);
@@ -179,12 +263,49 @@ const previewPointsToAward = settingsReady
     setAwarding(true);
 
     try {
-      const customerCode = checkoutData.customerCode;
+            const customerCode = checkoutData.customerCode;
 
       if (!customerCode) {
         toast.error('Missing customer code. Cannot award points.');
         return;
       }
+
+      // Reload the customer's current selections immediately before checkout.
+      // This prevents a removed or swapped coupon from being redeemed if the
+      // customer changes the cart after the employee opens this screen.
+      const currentSelections = await loadLiveCheckoutSelections();
+      const currentCoupon = currentSelections.coupon;
+      const currentRewards = currentSelections.rewards;
+
+      setLiveCoupon(currentCoupon);
+      setLiveRewards(currentRewards);
+
+      const currentCheckoutTotals = calculateCheckoutTotals({
+        items,
+        coupon: currentCoupon,
+        rewards: currentRewards,
+        taxRate: 6,
+        pointsPerDollar: rewardSettings.pointsPerDollar,
+        rewardRounding: rewardSettings.rewardRounding || 'down',
+      });
+
+      const finalSubtotal = Number(
+        currentCheckoutTotals.subtotal ?? checkoutData.subtotal ?? 0
+      );
+
+      const finalTaxAmount = Number(
+        currentCheckoutTotals.taxAmount ??
+          checkoutData.taxAmount ??
+          checkoutData.tax_amount ??
+          0
+      );
+
+      const finalOrderTotal = Number(
+        currentCheckoutTotals.total ??
+          checkoutData.total ??
+          checkoutData.total_amount ??
+          0
+      );
 
       const { data: settings, error: settingsError } = await supabase
         .from('restaurants')
@@ -200,8 +321,8 @@ const previewPointsToAward = settingsReady
         settings?.reward_rounding || 'down'
       );
 
-      const requestedPoints = calculateRewardPoints(
-        orderTotal,
+            const requestedPoints = calculateRewardPoints(
+        finalOrderTotal,
         pointsPerDollar,
         rewardRounding
       );
@@ -224,7 +345,8 @@ const previewPointsToAward = settingsReady
 
       const newPointsBalance = currentBalance + actualPointsAwarded;
       const newLifetimePoints = Number(customer.lifetime_points || 0) + actualPointsAwarded;
-      const newLifetimeSpend = Number(customer.lifetime_spend || 0) + orderTotal;
+            const newLifetimeSpend =
+        Number(customer.lifetime_spend || 0) + finalOrderTotal;
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
       const completedAt = new Date().toISOString();
@@ -296,9 +418,9 @@ const previewPointsToAward = settingsReady
           restaurant_id: RESTAURANT_ID,
           customer_code: customerCode,
           order_number: orderNumber,
-          subtotal: Number(checkoutSubtotal || 0),
-          tax_amount: Number(checkoutTaxAmount || 0),
-          total_amount: orderTotal,
+          subtotal: finalSubtotal,
+          tax_amount: finalTaxAmount,
+          total_amount: finalOrderTotal,
           points_awarded: actualPointsAwarded,
           payment_method: 'outside_app',
           order_status: 'completed',
@@ -345,10 +467,7 @@ const previewPointsToAward = settingsReady
               order_number: orderNumber,
               transaction_type: 'earned',
               points_amount: actualPointsAwarded,
-              note:
-              actualPointsAwarded < requestedPoints
-               ? `Earned ${actualPointsAwarded} points from a $${money(orderTotal)} purchase.`
-                : `Earned ${actualPointsAwarded} points from a $${money(orderTotal)} purchase.`,
+                            note: `Earned ${actualPointsAwarded} points from a $${money(finalOrderTotal)} purchase.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
               awarded_by_employee_id: staffUser?.id || null,
               awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
@@ -365,10 +484,10 @@ const previewPointsToAward = settingsReady
       // reward-only and birthday reward checkouts.
       await completeCustomerCheckoutSession();
 
-      const checkoutDealId =
-        claimedCoupon?.checkoutDealId ||
-        claimedCoupon?.checkout_deal_id ||
-        claimedCoupon?.id;
+            const checkoutDealId =
+        currentCoupon?.checkoutDealId ||
+        currentCoupon?.checkout_deal_id ||
+        currentCoupon?.id;
 
       if (checkoutDealId) {
         const { error: couponError } = await supabase
@@ -387,7 +506,7 @@ const previewPointsToAward = settingsReady
 
       // Fallback: if the checkout data did not include the exact coupon id,
       // clear any pending checkout coupon for this customer so it disappears from the cart.
-      if (!checkoutDealId && claimedCoupon) {
+            if (!checkoutDealId && currentCoupon) {
         const { error: pendingCouponError } = await supabase
           .from('customer_checkout_deals')
           .update({
@@ -402,8 +521,8 @@ const previewPointsToAward = settingsReady
         if (pendingCouponError) throw pendingCouponError;
       }
 
-      if (claimedRewards.length > 0) {
-        const rewardIds = claimedRewards
+            if (currentRewards.length > 0) {
+        const rewardIds = currentRewards
           .map(
             (reward) =>
               reward.checkoutRewardId ||
@@ -426,7 +545,7 @@ const previewPointsToAward = settingsReady
 
           if (rewardsError) throw rewardsError;
 
-          const birthdayRewardsUsed = claimedRewards.filter(isBirthdayReward);
+          currentRewards.filter(isBirthdayReward);
 
           if (birthdayRewardsUsed.length > 0) {
             const { error: birthdayError } = await supabase
@@ -464,8 +583,8 @@ const previewPointsToAward = settingsReady
       // Fallback: if the checkout data had rewards but did not include exact ids,
       // clear any pending checkout rewards for this customer so they disappear from the cart.
       if (
-        claimedRewards.length > 0 &&
-        claimedRewards.every(
+        currentRewards.length > 0 &&
+        currentRewards.every(
           (reward) =>
             !reward.checkoutRewardId &&
             !reward.checkout_reward_id &&
@@ -485,7 +604,7 @@ const previewPointsToAward = settingsReady
 
         if (pendingRewardsError) throw pendingRewardsError;
 
-        const birthdayRewardsUsed = claimedRewards.filter(isBirthdayReward);
+        const birthdayRewardsUsed = currentRewards.filter(isBirthdayReward);
 
         if (birthdayRewardsUsed.length > 0) {
           const { error: birthdayError } = await supabase
@@ -699,10 +818,14 @@ const previewPointsToAward = settingsReady
           type="button"
           className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
           onClick={handleCompleteAward}
-          disabled={awarding}
+                    disabled={awarding || liveCheckoutLoading}
         >
           <CheckCircle className="w-4 h-4" />
-          {awarding ? 'Completing...' : 'Complete Checkout'}
+                    {liveCheckoutLoading
+            ? 'Loading Current Checkout...'
+            : awarding
+              ? 'Completing...'
+              : 'Complete Checkout'}
         </button>
       </div>
     </div>
