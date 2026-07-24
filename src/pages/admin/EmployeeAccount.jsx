@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useState } from 'react';
 import { User, Mail, Phone, MapPin, Save, CheckCircle, AlertCircle } from 'lucide-react';
@@ -39,94 +38,58 @@ export default function EmployeeAccount() {
   }, []);
 
   const loadEmployee = async () => {
-  setLoading(true);
-  setLoadError('');
+    setLoading(true);
+    setLoadError('');
 
-  try {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    try {
+      const savedEmployee = getSavedEmployeeFromStorage();
 
-    if (userError) {
-      throw userError;
-    }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (!user?.id) {
-      setLoadError(
-        'Employee account not found. Please log out and log back in.'
-      );
-      toast.error('Employee account not found');
-      return;
-    }
+      const authUserId = user?.id;
 
-    let { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('restaurant_id', RESTAURANT_ID)
-      .eq('auth_user_id', user.id)
-      .maybeSingle();
+if (!authUserId) {
+  setLoadError(
+    'Employee account not found. Please log out and log back in.'
+  );
+  toast.error('Employee account not found');
+  return;
+}
 
-    if (error) {
-      throw error;
-    }
+const { data, error } = await supabase
+  .from('employees')
+  .select('*')
+  .eq('restaurant_id', RESTAURANT_ID)
+  .eq('auth_user_id', authUserId)
+  .maybeSingle();
 
-    // Temporary fallback for older employee records that may not
-    // have auth_user_id saved yet.
-    if (!data && user.email) {
-      const cleanEmail = String(user.email).trim().toLowerCase();
+      if (error) throw error;
 
-      const fallbackResult = await supabase
-        .from('employees')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .ilike('email', cleanEmail)
-        .maybeSingle();
-
-      if (fallbackResult.error) {
-        throw fallbackResult.error;
+      if (!data) {
+        setLoadError('Employee record not found in Supabase.');
+        toast.error('Employee record not found');
+        return;
       }
 
-      data = fallbackResult.data;
+      setEmployeeId(data.id);
+      setEmployeeEmail(data.email || user.email || '');
+
+      setForm({
+        full_name: data.full_name || data.name || '',
+        email: data.email || user.email || '',
+        phone: data.phone || '',
+        address: data.address || '',
+      });
+    } catch (error) {
+      console.error('Failed to load employee account:', error);
+      setLoadError(error.message || 'Failed to load employee account');
+      toast.error(error.message || 'Failed to load employee account');
+    } finally {
+      setLoading(false);
     }
-
-    if (!data) {
-      setLoadError(
-        'No employee record matches your signed-in account for this restaurant.'
-      );
-      toast.error('Employee record not found');
-      return;
-    }
-
-    const cleanEmail = String(
-      data.email || user.email || ''
-    )
-      .trim()
-      .toLowerCase();
-
-    setEmployeeId(data.id);
-    setEmployeeEmail(cleanEmail);
-
-    setForm({
-      full_name: data.full_name || data.name || '',
-      email: cleanEmail,
-      phone: data.phone || '',
-      address: data.address || '',
-    });
-  } catch (error) {
-    console.error('Failed to load employee account:', error);
-
-    setLoadError(
-      error.message || 'Failed to load employee account'
-    );
-
-    toast.error(
-      error.message || 'Failed to load employee account'
-    );
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleChange = (field, value) => {
     setSaved(false);

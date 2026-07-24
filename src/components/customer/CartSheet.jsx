@@ -550,8 +550,8 @@ const hasBlockedCheckoutRequirements =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
 
   const checkoutItems = cartItems.map((item) => ({
-    id: item.menu_item_id || item.id || null,
-    menu_item_id: item.menu_item_id || item.id || null,
+    id: item.menu_item_id || item.id || item.item_id || null,
+menu_item_id: item.menu_item_id || item.id || item.item_id || null,
     cart_item_key: item.cart_item_key || null,
     name: getCartItemDisplayName(item),
     base_name: item.name || 'Item',
@@ -560,7 +560,11 @@ const hasBlockedCheckoutRequirements =
     quantity: Number(item.quantity || 0),
     price: Number(item.price || 0),
     category: item.category || item.category_name || null,
-    category_id: item.category_id || item.menu_category_id || null,
+    category_id:
+  item.category_id ||
+  item.categoryId ||
+  item.menu_category_id ||
+  null,
   }));
 
   const claimedCoupon = pendingDeals[0]

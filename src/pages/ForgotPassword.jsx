@@ -20,33 +20,51 @@ export default function ForgotPassword() {
   const [sent, setSent] = useState(false);
 
   const handleSubmit = async (event) => {
-    event.preventDefault();
-    setLoading(true);
+  event.preventDefault();
+  setLoading(true);
+  setSent(false);
 
-    try {
-      const cleanEmail = String(email || "")
-        .trim()
-        .toLowerCase();
+  try {
+    const cleanEmail = String(email || "")
+      .trim()
+      .toLowerCase();
 
-      const redirectTo = `${window.location.origin}/reset-password`;
+    const redirectTo = `${window.location.origin}/reset-password`;
 
-      const { error } = await supabase.auth.resetPasswordForEmail(
-        cleanEmail,
-        {
-          redirectTo,
-        }
-      );
+    console.log("Requesting password reset:", {
+      email: cleanEmail,
+      redirectTo,
+    });
 
-      if (error) {
-        console.error("Password reset request failed:", error);
-      }
-    } catch (error) {
+    const { data, error } =
+      await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo,
+      });
+
+    console.log("Password reset response:", {
+      data,
+      error,
+    });
+
+    if (error) {
       console.error("Password reset request failed:", error);
-    } finally {
-      setLoading(false);
-      setSent(true);
+      alert(`Password reset failed: ${error.message}`);
+      return;
     }
-  };
+
+    setSent(true);
+  } catch (error) {
+    console.error("Password reset request failed:", error);
+
+    alert(
+      `Password reset failed: ${
+        error?.message || "Unknown error"
+      }`
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <AuthLayout

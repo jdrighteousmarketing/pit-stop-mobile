@@ -69,25 +69,70 @@ export const AuthProvider = ({ children }) => {
   };
 
   const lookupEmployee = async (authUser) => {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('auth_user_id', authUser.id)
-      .eq('restaurant_id', RESTAURANT_ID)
-      .eq('is_active', true)
-      .maybeSingle();
+  const { data: employeeData, error: employeeError } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('auth_user_id', authUser.id)
+    .eq('restaurant_id', RESTAURANT_ID)
+    .eq('is_active', true)
+    .maybeSingle();
 
-    if (error) {
-      console.error('Employee lookup failed:', error);
-      return null;
-    }
-
-    if (data && String(data.role || '').toLowerCase() === 'employee') {
-      return buildUser({ authUser, profile: data, role: 'employee' });
-    }
-
+  if (employeeError) {
+    console.error('Employee lookup failed:', employeeError);
     return null;
+  }
+
+  if (
+    !employeeData ||
+    String(employeeData.role || '').toLowerCase() !== 'employee'
+  ) {
+    return null;
+  }
+
+  const { data: customerData, error: customerError } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('auth_user_id', authUser.id)
+    .eq('restaurant_id', RESTAURANT_ID)
+    .maybeSingle();
+
+  if (customerError) {
+    console.error(
+      'Employee customer-profile lookup failed:',
+      customerError
+    );
+  }
+
+  const mergedProfile = {
+    ...(customerData || {}),
+    ...employeeData,
+
+    birthday: customerData?.birthday || '',
+    customer_id_code:
+      customerData?.customer_id_code ||
+      customerData?.customer_code ||
+      '',
+    customer_code:
+      customerData?.customer_code ||
+      customerData?.customer_id_code ||
+      '',
+    points_balance: Number(customerData?.points_balance || 0),
+    lifetime_points: Number(
+      customerData?.lifetime_points ||
+        customerData?.total_points_earned ||
+        0
+    ),
+
+    employee_id: employeeData.id,
+    customer_profile_id: customerData?.id || null,
   };
+
+  return buildUser({
+    authUser,
+    profile: mergedProfile,
+    role: 'employee',
+  });
+};
 
   const lookupCustomer = async (authUser) => {
     const { data, error } = await supabase

@@ -24,47 +24,70 @@ function getLifetimePoints(customer) {
   );
 }
 
-function daysUntilBirthday(birthday) {
+function getBirthdayCycle(birthday) {
   if (!birthday) return null;
 
+  const [, month, day] = String(birthday)
+    .split('-')
+    .map(Number);
+
+  if (!month || !day) return null;
+
   const today = new Date();
-  const birthdayDate = new Date(`${birthday}T00:00:00`);
-
-  if (Number.isNaN(birthdayDate.getTime())) return null;
-
   const todayStart = new Date(
     today.getFullYear(),
     today.getMonth(),
     today.getDate()
   );
 
-  const thisYearBirthday = new Date(
+  const possibleYears = [
+    today.getFullYear() - 1,
     today.getFullYear(),
-    birthdayDate.getMonth(),
-    birthdayDate.getDate()
-  );
+    today.getFullYear() + 1,
+  ];
 
-  const nextBirthday =
-    thisYearBirthday < todayStart
-      ? new Date(
-          today.getFullYear() + 1,
-          birthdayDate.getMonth(),
-          birthdayDate.getDate()
-        )
-      : thisYearBirthday;
+  for (const birthdayYear of possibleYears) {
+    const birthdayDate = new Date(
+      birthdayYear,
+      month - 1,
+      day
+    );
 
-  const diffMs = nextBirthday.getTime() - todayStart.getTime();
+    if (
+      Number.isNaN(birthdayDate.getTime()) ||
+      birthdayDate.getMonth() !== month - 1 ||
+      birthdayDate.getDate() !== day
+    ) {
+      continue;
+    }
 
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const windowStart = new Date(birthdayDate);
+    windowStart.setDate(windowStart.getDate() - 15);
+
+    const windowEnd = new Date(birthdayDate);
+    windowEnd.setDate(windowEnd.getDate() + 15);
+
+    if (todayStart >= windowStart && todayStart <= windowEnd) {
+      return {
+        birthdayYear,
+        isWithinWindow: true,
+      };
+    }
+  }
+
+  return {
+    birthdayYear: null,
+    isWithinWindow: false,
+  };
 }
 
 function canShowBirthdayReward(profile) {
-  if (!profile?.birthday) return false;
-  if (profile?.birthday_reward_redeemed_at) return false;
+  const cycle = getBirthdayCycle(profile?.birthday);
 
-  const days = daysUntilBirthday(profile.birthday);
-
-  return days !== null && days >= 0 && days <= 30;
+  return Boolean(
+    cycle?.isWithinWindow &&
+    !profile?.birthdayRewardRedeemedForCurrentCycle
+  );
 }
 
 export default function Rewards() {
@@ -84,7 +107,7 @@ export default function Rewards() {
     customer_id_code: '',
     customer_code: '',
     birthday: null,
-    birthday_reward_redeemed_at: null,
+    birthdayRewardRedeemedForCurrentCycle: false,
     isPreviewMode: false,
   });
 
@@ -109,7 +132,7 @@ export default function Rewards() {
         customer_id_code: 'PREVIEW',
         customer_code: 'PREVIEW',
         birthday: null,
-        birthday_reward_redeemed_at: null,
+        birthdayRewardRedeemedForCurrentCycle: false,
         isPreviewMode: true,
       };
 
@@ -130,7 +153,34 @@ export default function Rewards() {
           activeProfile = previewProfile;
           setProfile(activeProfile);
         } else {
-          activeProfile = {
+  const birthdayCycle = getBirthdayCycle(customerProfile.birthday);
+
+  let birthdayRewardRedeemedForCurrentCycle = false;
+
+  if (
+    birthdayCycle?.isWithinWindow &&
+    customerProfile.customer_code
+  ) {
+    const { data: birthdayRedemption, error: birthdayRedemptionError } =
+      await supabase
+        .from('birthday_reward_redemptions')
+        .select('id')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', customerProfile.customer_code)
+        .eq('birthday_year', birthdayCycle.birthdayYear)
+        .limit(1)
+        .maybeSingle();
+
+    if (birthdayRedemptionError) {
+      throw birthdayRedemptionError;
+    }
+
+    birthdayRewardRedeemedForCurrentCycle = Boolean(
+      birthdayRedemption?.id
+    );
+  }
+
+  activeProfile = {
             id: customerProfile.id,
             auth_user_id: customerProfile.auth_user_id || user.id,
             name:
@@ -150,8 +200,7 @@ export default function Rewards() {
               customerProfile.customer_id_code ||
               '',
             birthday: customerProfile.birthday || null,
-            birthday_reward_redeemed_at:
-              customerProfile.birthday_reward_redeemed_at || null,
+            birthdayRewardRedeemedForCurrentCycle,
             isPreviewMode: false,
           };
 
@@ -171,7 +220,7 @@ export default function Rewards() {
         customer_id_code: 'PREVIEW',
         customer_code: 'PREVIEW',
         birthday: null,
-        birthday_reward_redeemed_at: null,
+        birthdayRewardRedeemedForCurrentCycle: false,
         isPreviewMode: true,
       };
 
@@ -596,8 +645,9 @@ export default function Rewards() {
 
                     <p className="text-[10px] text-pink-200 mt-1">
                       {profile.isPreviewMode
-                        ? 'Admin preview: birthday rewards appear here when customers are within 30 days of their birthday.'
-                        : 'Available within 30 days of your birthday. If removed from checkout, it will return here.'}
+                        ? 'Admin preview: birthday rewards appear here from 15 days before through 15 days after the customer’s birthday.'
+                        : 'Available from 15 days before through 15 days after your birthday. If removed from checkout, it will return here.'
+                        }
                     </p>
 
                     <Button

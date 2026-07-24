@@ -87,14 +87,14 @@ export default function EmployeeLogin() {
       footer={
   <div className="flex flex-col gap-3 text-center">
     <span className="text-sm text-muted-foreground">
-      First time?{" "}
-      <Link
-        to="/employee-signup"
-        className="text-primary font-medium hover:underline"
-      >
-        Employee Sign Up
-      </Link>
-    </span>
+  Received a new employee invitation and need to create a password?{" "}
+  <Link
+    to="/employee-signup"
+    className="text-primary font-medium hover:underline"
+  >
+    Set Up Employee Account
+  </Link>
+</span>
 
     <Link
       to="/register"

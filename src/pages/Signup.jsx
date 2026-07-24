@@ -7,9 +7,16 @@ import { supabase } from '@/lib/supabaseClient';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Mail, Lock, Loader2, UserPlus } from 'lucide-react';
+import {
+  ArrowLeft,
+  KeyRound,
+  Loader2,
+  Lock,
+  Mail,
+  UserCheck,
+  UserPlus,
+} from 'lucide-react';
 import AuthLayout from '@/components/AuthLayout';
-
 
 const RESTAURANT_ID = restaurantConfig.id;
 
@@ -26,12 +33,14 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [existingAccount, setExistingAccount] = useState(false);
 
   const handleRegister = async (event) => {
     event.preventDefault();
 
     setError('');
     setSuccess('');
+    setExistingAccount(false);
 
     if (!email.trim()) {
       setError('Please enter your email address.');
@@ -56,24 +65,54 @@ export default function Signup() {
       const customerCode = createCustomerCode();
 
       const emailHeaderUrl = new URL(
-  restaurantConfig.emailHeaderImage,
-  window.location.origin
-).toString();
+        restaurantConfig.emailHeaderImage,
+        window.location.origin
+      ).toString();
 
-const { data: authData, error: authError } =
-  await supabase.auth.signUp({
-    email: cleanEmail,
-    password,
-    options: {
-      emailRedirectTo: `${window.location.origin}/login`,
-      data: {
+      const signupMetadata = {
         restaurant_id: RESTAURANT_ID,
         restaurant_name: restaurantConfig.restaurantName,
+        signup_origin: window.location.origin,
         email_header_url: emailHeaderUrl,
         primary_color: restaurantConfig.primaryColor,
-      },
-    },
-  });
+      };
+
+      const { data: authData, error: authError } =
+        await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/login`,
+            data: signupMetadata,
+          },
+        });
+
+      const errorMessage = String(
+        authError?.message || ''
+      ).toLowerCase();
+
+      const duplicateError =
+        errorMessage.includes('already registered') ||
+        errorMessage.includes('already exists') ||
+        errorMessage.includes('user already');
+
+      /*
+       * With email confirmation enabled, Supabase may intentionally hide
+       * whether an email already exists. In that case, the returned user
+       * commonly has an empty identities array.
+       */
+      const returnedIdentities = authData?.user?.identities;
+
+      const obfuscatedExistingUser =
+        Array.isArray(returnedIdentities) &&
+        returnedIdentities.length === 0;
+
+      if (duplicateError || obfuscatedExistingUser) {
+        setExistingAccount(true);
+        setPassword('');
+        setConfirm('');
+        return;
+      }
 
       if (authError) {
         throw authError;
@@ -117,12 +156,69 @@ const { data: authData, error: authError } =
       console.error('Customer signup failed:', err);
 
       setError(
-        err.message || 'Signup failed. Please try again.'
+        err?.message || 'Signup failed. Please try again.'
       );
     } finally {
       setLoading(false);
     }
   };
+
+  if (existingAccount) {
+    return (
+      <AuthLayout
+        icon={UserCheck}
+        title="Account Already Exists"
+        subtitle="Your login credentials work across JD Righteous LLC-powered apps"
+        footer={
+          <Link
+            to="/register"
+            className="font-medium text-primary hover:underline"
+            onClick={() => setExistingAccount(false)}
+          >
+            <ArrowLeft className="mr-1 inline h-3 w-3" />
+            Return to sign up
+          </Link>
+        }
+      >
+        <div className="space-y-5 text-center">
+          <div className="rounded-xl border border-primary/30 bg-primary/10 p-5">
+            <p className="text-sm leading-relaxed text-foreground">
+              You already have login credentials with an existing JD Righteous
+              LLC-powered app. Please return to the login page and log in as
+              usual.
+            </p>
+          </div>
+
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            After you sign in, this restaurant will be added to your account
+            with its own separate rewards, points, visits, and purchase history.
+          </p>
+
+          <Button asChild className="h-12 w-full font-medium">
+            <Link to="/login">
+              <UserCheck className="mr-2 h-4 w-4" />
+              Return to Login
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="outline"
+            className="h-12 w-full font-medium"
+          >
+            <Link to="/forgot-password">
+              <KeyRound className="mr-2 h-4 w-4" />
+              Forgot Password?
+            </Link>
+          </Button>
+
+          <p className="text-xs text-muted-foreground">
+            Sign in is powered by JD Righteous LLC
+          </p>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout
@@ -212,6 +308,7 @@ const { data: authData, error: authError } =
               onChange={(event) => setPassword(event.target.value)}
               className="h-12 pl-10"
               disabled={loading}
+              minLength={6}
               required
             />
           </div>
@@ -235,6 +332,7 @@ const { data: authData, error: authError } =
               onChange={(event) => setConfirm(event.target.value)}
               className="h-12 pl-10"
               disabled={loading}
+              minLength={6}
               required
             />
           </div>

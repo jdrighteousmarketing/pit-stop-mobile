@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentStaff } from '@/lib/currentStaff';
 import { calculateCheckoutTotals } from "@/components/businessInsights/utils/checkoutPricing";
 
 const RESTAURANT_ID = restaurantConfig.id;
@@ -154,14 +155,74 @@ export default function CheckoutReview() {
         ? pendingDeals[0]
         : null;
 
-    const currentRewards = Array.isArray(pendingRewards)
-      ? pendingRewards
-      : [];
+    const checkoutRewards = Array.isArray(pendingRewards)
+  ? pendingRewards
+  : [];
+
+const rewardIds = checkoutRewards
+  .map((reward) => reward.reward_id)
+  .filter(Boolean);
+
+let currentRewards = checkoutRewards;
+
+if (rewardIds.length > 0) {
+  const { data: rewardDetails, error: rewardDetailsError } = await supabase
+    .from('rewards')
+    .select(
+      'id, reward_type, target_menu_item_id, target_category_id, discount_type, discount_value'
+    )
+    .eq('restaurant_id', RESTAURANT_ID)
+    .in('id', rewardIds);
+
+  if (rewardDetailsError) throw rewardDetailsError;
+
+  const rewardDetailsById = new Map(
+    (rewardDetails || []).map((reward) => [
+      String(reward.id),
+      reward,
+    ])
+  );
+
+  currentRewards = checkoutRewards.map((checkoutReward) => {
+    const rewardDetail = rewardDetailsById.get(
+      String(checkoutReward.reward_id)
+    );
 
     return {
-      coupon: currentCoupon,
-      rewards: currentRewards,
+      ...checkoutReward,
+
+      reward_type:
+        checkoutReward.reward_type ||
+        rewardDetail?.reward_type ||
+        'points_reward',
+
+      target_menu_item_id:
+        checkoutReward.target_menu_item_id ||
+        rewardDetail?.target_menu_item_id ||
+        null,
+
+      target_category_id:
+        checkoutReward.target_category_id ||
+        rewardDetail?.target_category_id ||
+        null,
+
+      discount_type:
+        checkoutReward.discount_type ||
+        rewardDetail?.discount_type ||
+        null,
+
+      discount_value:
+        checkoutReward.discount_value ??
+        rewardDetail?.discount_value ??
+        0,
     };
+  });
+}
+
+return {
+  coupon: currentCoupon,
+  rewards: currentRewards,
+};
   };
 
   useEffect(() => {
@@ -200,16 +261,103 @@ export default function CheckoutReview() {
   }, [customerCode]);
 
   const claimedCoupon = liveCoupon;
-  const claimedRewards = liveRewards;
+const claimedRewards = liveRewards;
+
+const pricingCoupon = claimedCoupon
+  ? {
+      ...claimedCoupon,
+
+      discountType:
+        claimedCoupon.discountType ||
+        claimedCoupon.discount_type ||
+        '',
+
+      discountValue: Number(
+        claimedCoupon.discountValue ??
+        claimedCoupon.discount_value ??
+        0
+      ),
+
+      applyTo:
+        claimedCoupon.target_menu_item_id ||
+        claimedCoupon.targetMenuItemId
+          ? 'menu_item'
+          : claimedCoupon.target_category_id ||
+            claimedCoupon.targetCategoryId
+            ? 'category'
+            : claimedCoupon.applyTo ||
+              claimedCoupon.apply_to ||
+              'entire_order',
+
+      targetMenuItemId:
+        claimedCoupon.targetMenuItemId ||
+        claimedCoupon.target_menu_item_id ||
+        null,
+
+      targetCategoryId:
+        claimedCoupon.targetCategoryId ||
+        claimedCoupon.target_category_id ||
+        null,
+
+      minimumOrderAmount: Number(
+        claimedCoupon.minimumOrderAmount ??
+        claimedCoupon.minimum_order_amount ??
+        claimedCoupon.min_order_amount ??
+        0
+      ),
+
+      buyQuantity: Number(
+        claimedCoupon.buyQuantity ??
+        claimedCoupon.buy_quantity ??
+        1
+      ),
+
+      getQuantity: Number(
+        claimedCoupon.getQuantity ??
+        claimedCoupon.get_quantity ??
+        1
+      ),
+    }
+  : null;
+
+const pricingRewards = claimedRewards.map((reward) => ({
+  ...reward,
+
+  rewardType:
+    reward.rewardType ||
+    reward.reward_type ||
+    'points_reward',
+
+  discountType:
+    reward.discountType ||
+    reward.discount_type ||
+    '',
+
+  discountValue: Number(
+    reward.discountValue ??
+    reward.discount_value ??
+    0
+  ),
+
+  targetMenuItemId:
+    reward.targetMenuItemId ||
+    reward.target_menu_item_id ||
+    null,
+
+  targetCategoryId:
+    reward.targetCategoryId ||
+    reward.target_category_id ||
+    null,
+}));
 
   const checkoutTotals = calculateCheckoutTotals({
-    items,
-    coupon: claimedCoupon,
-    rewards: claimedRewards,
-    taxRate: 6,
-    pointsPerDollar: rewardSettings.pointsPerDollar,
-    rewardRounding: rewardSettings.rewardRounding || 'down',
-  });
+  items,
+  coupon: pricingCoupon,
+  rewards: pricingRewards,
+  taxRate: 6,
+  pointsPerDollar: rewardSettings.pointsPerDollar,
+  rewardRounding: rewardSettings.rewardRounding || 'down',
+});
 
 
 
@@ -280,14 +428,101 @@ const previewPointsToAward = settingsReady
       setLiveCoupon(currentCoupon);
       setLiveRewards(currentRewards);
 
-      const currentCheckoutTotals = calculateCheckoutTotals({
-        items,
-        coupon: currentCoupon,
-        rewards: currentRewards,
-        taxRate: 6,
-        pointsPerDollar: rewardSettings.pointsPerDollar,
-        rewardRounding: rewardSettings.rewardRounding || 'down',
-      });
+      const currentPricingCoupon = currentCoupon
+  ? {
+      ...currentCoupon,
+
+      discountType:
+        currentCoupon.discountType ||
+        currentCoupon.discount_type ||
+        '',
+
+      discountValue: Number(
+        currentCoupon.discountValue ??
+        currentCoupon.discount_value ??
+        0
+      ),
+
+      applyTo:
+        currentCoupon.target_menu_item_id ||
+        currentCoupon.targetMenuItemId
+          ? 'menu_item'
+          : currentCoupon.target_category_id ||
+            currentCoupon.targetCategoryId
+            ? 'category'
+            : currentCoupon.applyTo ||
+              currentCoupon.apply_to ||
+              'entire_order',
+
+      targetMenuItemId:
+        currentCoupon.targetMenuItemId ||
+        currentCoupon.target_menu_item_id ||
+        null,
+
+      targetCategoryId:
+        currentCoupon.targetCategoryId ||
+        currentCoupon.target_category_id ||
+        null,
+
+      minimumOrderAmount: Number(
+        currentCoupon.minimumOrderAmount ??
+        currentCoupon.minimum_order_amount ??
+        currentCoupon.min_order_amount ??
+        0
+      ),
+
+      buyQuantity: Number(
+        currentCoupon.buyQuantity ??
+        currentCoupon.buy_quantity ??
+        1
+      ),
+
+      getQuantity: Number(
+        currentCoupon.getQuantity ??
+        currentCoupon.get_quantity ??
+        1
+      ),
+    }
+  : null;
+
+const currentPricingRewards = currentRewards.map((reward) => ({
+  ...reward,
+
+  rewardType:
+    reward.rewardType ||
+    reward.reward_type ||
+    'points_reward',
+
+  discountType:
+    reward.discountType ||
+    reward.discount_type ||
+    '',
+
+  discountValue: Number(
+    reward.discountValue ??
+    reward.discount_value ??
+    0
+  ),
+
+  targetMenuItemId:
+    reward.targetMenuItemId ||
+    reward.target_menu_item_id ||
+    null,
+
+  targetCategoryId:
+    reward.targetCategoryId ||
+    reward.target_category_id ||
+    null,
+}));
+
+const currentCheckoutTotals = calculateCheckoutTotals({
+  items,
+  coupon: currentPricingCoupon,
+  rewards: currentPricingRewards,
+  taxRate: 6,
+  pointsPerDollar: rewardSettings.pointsPerDollar,
+  rewardRounding: rewardSettings.rewardRounding || 'down',
+});
 
       const finalSubtotal = Number(
         currentCheckoutTotals.subtotal ?? checkoutData.subtotal ?? 0
@@ -350,8 +585,63 @@ const previewPointsToAward = settingsReady
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
       const completedAt = new Date().toISOString();
+
+const completedDate = new Date(completedAt);
+
+const [, birthdayMonth, birthdayDay] = String(customer.birthday || '')
+  .split('-')
+  .map(Number);
+
+let birthdayYear = completedDate.getFullYear();
+
+if (birthdayMonth && birthdayDay) {
+  const completedDay = new Date(
+    completedDate.getFullYear(),
+    completedDate.getMonth(),
+    completedDate.getDate()
+  );
+
+  const possibleYears = [
+    completedDate.getFullYear() - 1,
+    completedDate.getFullYear(),
+    completedDate.getFullYear() + 1,
+  ];
+
+  const matchingBirthdayYear = possibleYears.find((year) => {
+    const birthdayDate = new Date(
+      year,
+      birthdayMonth - 1,
+      birthdayDay
+    );
+
+    if (
+      Number.isNaN(birthdayDate.getTime()) ||
+      birthdayDate.getMonth() !== birthdayMonth - 1 ||
+      birthdayDate.getDate() !== birthdayDay
+    ) {
+      return false;
+    }
+
+    const windowStart = new Date(birthdayDate);
+    windowStart.setDate(windowStart.getDate() - 15);
+
+    const windowEnd = new Date(birthdayDate);
+    windowEnd.setDate(windowEnd.getDate() + 15);
+
+    return completedDay >= windowStart && completedDay <= windowEnd;
+  });
+
+  if (matchingBirthdayYear) {
+    birthdayYear = matchingBirthdayYear;
+  }
+}
+
       const activeCheckoutCode =
         checkoutData.checkoutCode || checkoutData.checkout_code || null;
+
+        const staffUser = await getCurrentStaff();
+
+console.log('Current staff completing checkout:', staffUser);
 
       const completeCustomerCheckoutSession = async () => {
         const sessionUpdate = {
@@ -424,7 +714,10 @@ const previewPointsToAward = settingsReady
           points_awarded: actualPointsAwarded,
           payment_method: 'outside_app',
           order_status: 'completed',
-          employee_name: 'Employee',
+          employee_name:
+  staffUser?.name ||
+  staffUser?.email ||
+  'Employee',
         },
       ]);
 
@@ -453,9 +746,6 @@ const previewPointsToAward = settingsReady
         if (orderItemsError) throw orderItemsError;
       }
 
-      const employeeUser = JSON.parse(localStorage.getItem('pitstop_employee_user') || '{}');
-      const adminUser = JSON.parse(localStorage.getItem('pitstop_demo_user') || '{}');
-      const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
 
       if (actualPointsAwarded > 0) {
         const { error: pointsError } = await supabase
@@ -545,18 +835,10 @@ const previewPointsToAward = settingsReady
 
           if (rewardsError) throw rewardsError;
 
-          currentRewards.filter(isBirthdayReward);
+          const birthdayRewardsUsed = currentRewards.filter(isBirthdayReward);
 
-          if (birthdayRewardsUsed.length > 0) {
-            const { error: birthdayError } = await supabase
-              .from('customers')
-              .update({
-                birthday_reward_redeemed_at: completedAt,
-              })
-              .eq('restaurant_id', RESTAURANT_ID)
-              .eq('customer_code', customerCode);
-
-            if (birthdayError) throw birthdayError;
+if (birthdayRewardsUsed.length > 0) {
+            
 
             const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
               restaurant_id: RESTAURANT_ID,
@@ -567,6 +849,7 @@ const previewPointsToAward = settingsReady
               reward_name: getRewardName(reward),
               redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
               redeemed_at: completedAt,
+              birthday_year: birthdayYear,
             }));
 
             const { error: birthdayRedemptionError } = await supabase
@@ -607,15 +890,6 @@ const previewPointsToAward = settingsReady
         const birthdayRewardsUsed = currentRewards.filter(isBirthdayReward);
 
         if (birthdayRewardsUsed.length > 0) {
-          const { error: birthdayError } = await supabase
-            .from('customers')
-            .update({
-              birthday_reward_redeemed_at: completedAt,
-            })
-            .eq('restaurant_id', RESTAURANT_ID)
-            .eq('customer_code', customerCode);
-
-          if (birthdayError) throw birthdayError;
 
           const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
             restaurant_id: RESTAURANT_ID,
@@ -626,6 +900,7 @@ const previewPointsToAward = settingsReady
             reward_name: getRewardName(reward),
             redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
             redeemed_at: completedAt,
+            birthday_year: birthdayYear,
           }));
 
           const { error: birthdayRedemptionError } = await supabase

@@ -109,7 +109,8 @@ function getMatchingItems(items = [], coupon = null) {
   const targetCategoryId = getCouponTargetCategoryId(coupon);
 
   if (applyTo === 'menu_item' && targetMenuItemId) {
-    return items.filter((item) => getItemMenuItemId(item) === targetMenuItemId);
+    return items.filter((item) =>
+  String(getItemMenuItemId(item)) === String(targetMenuItemId));
   }
 
   if (applyTo === 'category' && targetCategoryId) {
@@ -208,7 +209,8 @@ export function calculateRewardDiscount({ items = [], rewards = [] } = {}) {
 
       rewardDiscount += calculateFreeOneItemDiscount(
         items,
-        (item) => getItemMenuItemId(item) === targetMenuItemId
+        (item) =>
+  String(getItemMenuItemId(item)) === String(targetMenuItemId)
       );
 
       return;
@@ -220,7 +222,8 @@ export function calculateRewardDiscount({ items = [], rewards = [] } = {}) {
 
       rewardDiscount += calculateFreeOneItemDiscount(
         items,
-        (item) => getItemCategoryId(item) === targetCategoryId
+        (item) =>
+  String(getItemCategoryId(item)) === String(targetCategoryId)
       );
     }
   });
@@ -259,10 +262,34 @@ export function calculateCouponDiscount({ subtotal = 0, coupon = null, items = [
   const discountValue = getCouponDiscountValue(coupon);
 
   if (discountType === 'bogo') {
-    return calculateBogoDiscount(items, coupon);
+  return calculateBogoDiscount(items, coupon);
+}
+
+if (discountType === 'free_item' || discountType === 'free_category') {
+  const applyTo = getCouponApplyTo(coupon);
+  const targetMenuItemId = getCouponTargetMenuItemId(coupon);
+  const targetCategoryId = getCouponTargetCategoryId(coupon);
+
+  if (applyTo === 'category' && targetCategoryId) {
+    return calculateFreeOneItemDiscount(
+      items,
+      (item) =>
+        String(getItemCategoryId(item)) === String(targetCategoryId)
+    );
   }
 
-  const discountBase = calculateTargetSubtotal(items, coupon, orderSubtotal);
+  if (applyTo === 'menu_item' && targetMenuItemId) {
+    return calculateFreeOneItemDiscount(
+      items,
+      (item) =>
+        String(getItemMenuItemId(item)) === String(targetMenuItemId)
+    );
+  }
+
+  return 0;
+}
+
+const discountBase = calculateTargetSubtotal(items, coupon, orderSubtotal);
 
   if (discountBase <= 0) return 0;
 

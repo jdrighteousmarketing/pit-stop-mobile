@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -138,7 +139,7 @@ export default function Account() {
 
   const isEmployee = profile?.role === 'employee';
   const isAdmin = profile?.role === 'admin';
-
+  const birthdayLocked = Boolean(profile?.birthday);
   const customerCode =
     profile.customer_id_code || profile.customer_code || '';
 
@@ -323,24 +324,70 @@ export default function Account() {
         throw new Error('Could not find logged-in auth user.');
       }
 
-      const updatedProfile = {
-        ...profile,
-        ...form,
-      };
+      let customerRow = null;
+
+if (!isAdmin) {
+  const { data, error: customerLookupError } = await supabase
+    .from('customers')
+    .select('id, birthday')
+    .eq('restaurant_id', RESTAURANT_ID)
+    .eq('auth_user_id', authUser.id)
+    .maybeSingle();
+
+  if (customerLookupError) throw customerLookupError;
+
+  customerRow = data;
+
+  if (!customerRow?.id) {
+    throw new Error(
+      'A customer profile could not be found for this restaurant.'
+    );
+  }
+}
+
+const birthdayToSave =
+  customerRow?.birthday || form.birthday || null;
+
+const updatedProfile = {
+  ...profile,
+  ...form,
+  birthday: birthdayToSave || '',
+};
 
       if (isEmployee) {
-        const { error } = await supabase
-          .from('employees')
-          .update({
-            full_name: updatedProfile.name,
-            phone: updatedProfile.phone || null,
-            address: updatedProfile.address || null,
-          })
-          .eq('restaurant_id', RESTAURANT_ID)
-          .eq('auth_user_id', authUser.id);
+  const { error: employeeError } = await supabase
+    .from('employees')
+    .update({
+      full_name: updatedProfile.name,
+      phone: updatedProfile.phone || null,
+      address: updatedProfile.address || null,
+    })
+    .eq('restaurant_id', RESTAURANT_ID)
+    .eq('auth_user_id', authUser.id);
 
-        if (error) throw error;
-      } else if (isAdmin) {
+  if (employeeError) throw employeeError;
+
+  
+  if (customerRow?.id) {
+    const { error: customerUpdateError } = await supabase
+      .from('customers')
+      .update({
+        name: updatedProfile.name,
+        phone: updatedProfile.phone || null,
+        birthday: birthdayToSave,
+        address: updatedProfile.address || null,
+      })
+      .eq('id', customerRow.id)
+      .eq('restaurant_id', RESTAURANT_ID);
+
+    if (customerUpdateError) throw customerUpdateError;
+  } else {
+    throw new Error(
+      'This employee does not yet have a customer profile for this restaurant.'
+    );
+  }
+}
+      else if (isAdmin) {
         const { error } = await supabase
           .from('admins')
           .update({
@@ -356,7 +403,7 @@ export default function Account() {
           .update({
             name: updatedProfile.name,
             phone: updatedProfile.phone || null,
-            birthday: updatedProfile.birthday || null,
+            birthday: birthdayToSave,
             address: updatedProfile.address || null,
           })
           .eq('restaurant_id', RESTAURANT_ID)
@@ -371,9 +418,11 @@ export default function Account() {
       setEditing(false);
       toast.success('Profile updated!');
     } catch (error) {
-      console.error(error);
-      toast.error('Could not update profile in Supabase.');
-    } finally {
+  console.error(error);
+  toast.error(
+    error.message || 'Could not update profile in Supabase.'
+  );
+} finally {
       setSaving(false);
     }
   };
@@ -460,14 +509,21 @@ export default function Account() {
               <div>
                 <Label className="text-sm text-muted-foreground">Birthday</Label>
                 <Input
-                  type="date"
-                  value={form.birthday}
-                  onChange={(e) =>
-                    setForm({ ...form, birthday: e.target.value })
-                  }
-                  className="mt-1 h-11"
-                  disabled={isEmployee}
-                />
+  type="date"
+  value={form.birthday}
+  onChange={(e) =>
+    setForm({ ...form, birthday: e.target.value })
+  }
+  className="mt-1 h-11"
+  disabled={birthdayLocked}
+/>
+
+<p className="mt-2 text-xs text-muted-foreground">
+  {birthdayLocked
+    ? "Birthday has been saved and can no longer be changed."
+    : "Your birthday can only be entered once. Please make sure the date is correct before saving."}
+</p>
+
               </div>
             )}
 
